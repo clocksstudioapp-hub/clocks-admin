@@ -333,7 +333,7 @@ function CalendarView({data,onCancel,onApptAdded}){
 
           <div style={{display:'flex'}}>
             <div style={{width:52,flexShrink:0,borderRight:'1px solid var(--border)',position:'relative',height:timelineH}}>
-              {hourLabels.map((h,i)=><div key={h} style={{position:'absolute',top:i*SLOT_H*2-2,left:0,right:0,textAlign:'right',paddingRight:6,fontSize:10,fontWeight:600,color:'var(--text3)'}}>{h}</div>)}
+              {hourLabels.map((h,i)=><div key={h} style={{position:'absolute',top:i*SLOT_H*2+(i===0?0:-7),,left:0,right:0,textAlign:'right',paddingRight:6,fontSize:10,fontWeight:600,color:'var(--text3)'}}>{h}</div>)}
             </div>
             {days.map(day=>{
               const key=toK(day)
