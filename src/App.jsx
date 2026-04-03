@@ -173,6 +173,8 @@ function CalendarView({data,onCancel}){
         </table>
         {/* Scrollable body with matching grid */}
         <div>
+          </div>
+    </div>
         {/* Header */}
         <div style={{display:'flex',borderBottom:'1px solid var(--border)'}}>
           <div style={{width:60,flexShrink:0,padding:'12px 8px',borderRight:'1px solid var(--border)',background:'var(--bg)'}}/>
