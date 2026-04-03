@@ -182,11 +182,36 @@ function CalendarView({data,onCancel}){
           </div>)}
         </div>
         {/* Rows */}
-        <div>
-                })}
-              </div>
-            })}
-          </div>)}
+        <div style={{overflowY:'auto',maxHeight:'60vh'}}>
+          {hours.map(h=>(
+            <div key={h} style={{display:'flex',borderBottom:'1px solid var(--border)'}}>
+              <div style={{width:60,flexShrink:0,padding:'8px',borderRight:'1px solid var(--border)',fontSize:11,color:'var(--text3)',textAlign:'right',paddingRight:8}}>{h}</div>
+              {days.map(d=>{
+                const dk=toK(d)
+                const dayAppts=appts.filter(a=>a.appointment_date===dk&&a.appointment_time?.slice(0,5)===h&&a.status!=='cancelled')
+                const dayBlocks=blocks?.filter(b=>b.blocked_date===dk&&b.start_time?.slice(0,5)===h)||[]
+                return(
+                  <div key={dk} style={{flex:1,minHeight:40,borderRight:'1px solid var(--border)',padding:2,background:isT(d)?'var(--teal-bg)':'var(--white)'}}>
+                    {dayBlocks.map(b=>(
+                      <div key={b.id} style={{background:'var(--red-bg)',border:'1px solid rgba(229,57,53,0.2)',borderRadius:4,padding:'2px 4px',fontSize:10,color:'var(--red)',marginBottom:2}}>{b.reason||'Bloqueado'}</div>
+                    ))}
+                    {dayAppts.map(a=>{
+                      const si=stylists.findIndex(s=>s.id===a.stylist_id)
+                      const color=stColors[si%stColors.length]
+                      const sv=services.find(s=>s.id===a.service_id)
+                      const pr=profiles[a.user_id]
+                      return(
+                        <div key={a.id} onClick={()=>setSelAppt(a)} style={{background:color+'22',border:`1px solid ${color}44`,borderLeft:`3px solid ${color}`,borderRadius:4,padding:'2px 5px',fontSize:10,cursor:'pointer',marginBottom:2}}>
+                          <div style={{fontWeight:700,color,whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{pr?.full_name||'—'}</div>
+                          <div style={{color:'var(--text3)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{sv?.name||'—'}</div>
+                        </div>
+                      )
+                    })}
+                  </div>
+                )
+              })}
+            </div>
+          ))}
         </div>
       </div>
     </div>
