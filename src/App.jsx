@@ -153,29 +153,8 @@ function CalendarView({data,onCancel}){
         <Btn small variant="secondary" onClick={()=>{const d=new Date(week);d.setDate(d.getDate()+7);setWeek(d)}}>→</Btn>
       </div>
     </div>
-
     <div style={{background:'var(--white)',borderRadius:12,border:'1px solid var(--border)',boxShadow:'var(--shadow)',overflow:'hidden'}}>
-      {/* FIXED: Use table layout for perfect alignment */}
       <div style={{overflowX:'auto'}}>
-        <table style={{width:'100%',borderCollapse:'collapse',tableLayout:'fixed'}}>
-          <thead>
-            <tr>
-              <th style={{width:60,padding:'12px 8px',borderBottom:'1px solid var(--border)',borderRight:'1px solid var(--border)',background:'var(--bg)',fontSize:11,color:'var(--text3)'}}></th>
-              {days.map(d=><th key={toK(d)} style={{padding:'12px 8px',textAlign:'center',borderBottom:'1px solid var(--border)',borderRight:'1px solid var(--border)',background:isT(d)?'var(--teal-bg)':'var(--bg)'}}>
-                <div style={{fontSize:11,fontWeight:600,color:'var(--text3)',textTransform:'uppercase'}}>{DL[(d.getDay()+6)%7]}</div>
-                <div style={{fontSize:18,fontWeight:isT(d)?800:600,color:isT(d)?'var(--teal)':'var(--text)',marginTop:2}}>{d.getDate()}</div>
-              </th>)}
-            </tr>
-          </thead>
-          <tbody style={{maxHeight:'calc(100vh - 260px)',display:'block',overflowY:'auto'}}>
-            {/* Reset display for proper table layout */}
-          </tbody>
-        </table>
-        {/* Scrollable body with matching grid */}
-        <div>
-          </div>
-    </div>
-        {/* Header */}
         <div style={{display:'flex',borderBottom:'1px solid var(--border)'}}>
           <div style={{width:60,flexShrink:0,padding:'12px 8px',borderRight:'1px solid var(--border)',background:'var(--bg)'}}/>
           {days.map(d=><div key={toK(d)} style={{flex:1,padding:'12px 8px',textAlign:'center',borderRight:'1px solid var(--border)',background:isT(d)?'var(--teal-bg)':'var(--bg)'}}>
@@ -183,7 +162,6 @@ function CalendarView({data,onCancel}){
             <div style={{fontSize:18,fontWeight:isT(d)?800:600,color:isT(d)?'var(--teal)':'var(--text)',marginTop:2}}>{d.getDate()}</div>
           </div>)}
         </div>
-        {/* Rows */}
         <div style={{overflowY:'auto',maxHeight:'60vh'}}>
           {hours.map(h=>(
             <div key={h} style={{display:'flex',borderBottom:'1px solid var(--border)'}}>
@@ -220,7 +198,6 @@ function CalendarView({data,onCancel}){
     <div style={{display:'flex',gap:14,marginTop:10,flexWrap:'wrap'}}>
       {stylists.filter(s=>s.active).map((s,i)=><div key={s.id} style={{display:'flex',alignItems:'center',gap:5}}><div style={{width:10,height:10,borderRadius:3,background:stColors[i%stColors.length]}}/><span style={{fontSize:12,color:'var(--text2)'}}>{s.name}</span></div>)}
     </div>
-
     {selAppt&&<Modal onClose={()=>setSelAppt(null)}>
       {(()=>{const a=selAppt,sv=services.find(s=>s.id===a.service_id),st=stylists.find(s=>s.id===a.stylist_id),pr=profiles[a.user_id];return<>
         <h3 style={{fontSize:20,fontWeight:800,marginBottom:16}}>Detalle de cita</h3>
@@ -230,7 +207,6 @@ function CalendarView({data,onCancel}){
         <div style={{display:'flex',gap:10}}><Btn variant="secondary" onClick={()=>setSelAppt(null)} style={{flex:1}}>Cerrar</Btn>{a.status==='confirmed'&&<Btn variant="danger" onClick={()=>{setCancelM(a);setSelAppt(null)}} style={{flex:1}}>Cancelar cita</Btn>}</div>
       </>})()}
     </Modal>}
-
     {cancelM&&<Modal onClose={()=>setCancelM(null)}>
       <h3 style={{fontSize:18,fontWeight:800,marginBottom:12}}>¿Cancelar esta cita?</h3>
       <div style={{padding:14,background:'var(--bg)',borderRadius:8,marginBottom:16}}>
