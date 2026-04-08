@@ -47,6 +47,8 @@ const gS=(o='09:00',c='20:00',step=30)=>{const s=[];let[h,m]=o.split(':').map(Nu
 const getWeekDays=d=>{const mon=new Date(d);const day=mon.getDay();const diff=day===0?-6:1-day;mon.setDate(mon.getDate()+diff);const days=[];for(let i=0;i<7;i++){const x=new Date(mon);x.setDate(mon.getDate()+i);days.push(x)}return days}
 const normName=s=>s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
 const daysForCount=n=>n<=1?7:n<=2?5:n<=3?3:n<=4?2:1
+const alvaroEffDur=(sty,svc)=>{if(!sty||!svc)return svc?.duration||30;const isA=normName(sty.name||'').includes('alvaro');const isQ=normName(svc.name||'').includes('corte')||normName(svc.name||'').includes('barba');return(isA&&isQ)?30:svc.duration}
+const PLANS=[{id:'iniciacion',label:'Iniciación',color:'var(--blue)',bg:'var(--blue-bg)'},{id:'perfeccionamiento',label:'Perfeccionamiento',color:'var(--purple)',bg:'var(--purple-bg)'}]
 
 const EXPENSE_CATS=[{id:'alquiler',label:'Alquiler',icon:'🏠'},{id:'productos',label:'Productos',icon:'🧴'},{id:'suministros',label:'Suministros',icon:'💡'},{id:'marketing',label:'Marketing',icon:'📣'},{id:'personal',label:'Personal',icon:'👤'},{id:'equipamiento',label:'Equipamiento',icon:'🪑'},{id:'general',label:'General',icon:'📦'},{id:'otro',label:'Otro',icon:'📝'}]
 const STY_COLORS=['#6D28D9','#EA580C','#0891B2','#CA8A04','#16A34A','#DB2777','#7C3AED','#DC2626']
@@ -80,7 +82,7 @@ function Stat({label,value,sub,icon,color='var(--purple)',bg='var(--purple-bg)'}
 // ═══ SIDEBAR ═══
 function Sidebar({active,onNav}){
   const[imgOk,setImgOk]=useState(true)
-  const items=[{id:'dash',label:'Dashboard',icon:'📊'},{id:'cal',label:'Calendario',icon:'📅'},{id:'finance',label:'Finanzas',icon:'💰'},{id:'barbers',label:'Barberos',icon:'📈'},{id:'clients',label:'Clientes',icon:'👥'},{id:'team',label:'Equipo',icon:'👤'},{id:'services',label:'Servicios',icon:'✂️'},{id:'blocks',label:'Bloqueos',icon:'🚫'}]
+  const items=[{id:'dash',label:'Dashboard',icon:'📊'},{id:'cal',label:'Calendario',icon:'📅'},{id:'finance',label:'Facturación',icon:'🧾'},{id:'barbers',label:'Barberos',icon:'📈'},{id:'clients',label:'Clientes',icon:'👥'},{id:'team',label:'Equipo',icon:'👤'},{id:'services',label:'Servicios',icon:'✂️'},{id:'blocks',label:'Bloqueos',icon:'🚫'}]
   return<div style={{width:'var(--sidebar-w)',background:'var(--white)',borderRight:'1.5px solid var(--border)',height:'100vh',position:'fixed',left:0,top:0,display:'flex',flexDirection:'column',zIndex:10,boxShadow:'2px 0 12px rgba(109,40,217,0.06)'}}>
     <div style={{padding:'18px 16px',borderBottom:'1.5px solid var(--border)'}}>
       <div style={{display:'flex',alignItems:'center',gap:10}}>
@@ -178,7 +180,8 @@ function AddApptModal({data,defaultDate,defaultStylistId,onSave,onClose}){
   const[note,setNote]=useState('')
   const[saving,setSaving]=useState(false)
   const svc=services.find(s=>s.id===Number(svcId))
-  const endTime=svc?aM(time,svc.duration):''
+  const styObj=stylists.find(s=>s.id===Number(styId))
+  const endTime=svc?aM(time,alvaroEffDur(styObj,svc)):''
   const[err,setErr]=useState('')
   const handleSave=async()=>{
     if(!clientName.trim()||!styId||!svcId||!date||!time)return
@@ -190,7 +193,7 @@ function AddApptModal({data,defaultDate,defaultStylistId,onSave,onClose}){
       service_id:Number(svcId),
       appointment_date:date,
       appointment_time:time,
-      end_time:endTime||aM(time,svc?.duration||30),
+      end_time:endTime||aM(time,alvaroEffDur(styObj,svc)||30),
       status:'confirmed',
       notes:noteFinal
     })
@@ -355,7 +358,8 @@ function CalendarView({data,onCancel,onApptAdded}){
                       const pr=profiles[a.user_id]
                       const name=a.user_id?pr?.full_name:a.notes?.replace(/^\[TEL\]\s*/,'').split(' — ')[0]||'Tel.'
                       const y=timeToY(a.appointment_time)
-                      const h=durToH(sv?.duration||30)
+                      const actualDur=(()=>{if(a.end_time&&a.appointment_time){const[sh,sm]=a.appointment_time.slice(0,5).split(':').map(Number);const[eh,em]=a.end_time.slice(0,5).split(':').map(Number);return(eh*60+em)-(sh*60+sm)}return sv?.duration||30})()
+                      const h=durToH(actualDur)
                       return<div key={a.id} onClick={e=>{e.stopPropagation();setSelAppt(a)}} style={{position:'absolute',top:y+1,height:Math.max(h-2,20),left:2,right:2,background:color,borderRadius:6,zIndex:3,cursor:'pointer',padding:'3px 5px',overflow:'hidden',boxShadow:`0 1px 4px ${color}55`,transition:'opacity .15s'}} onMouseEnter={e=>e.currentTarget.style.opacity='.85'} onMouseLeave={e=>e.currentTarget.style.opacity='1'}>
                         <div style={{fontSize:10,fontWeight:700,color:'#fff',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{a.appointment_time?.slice(0,5)} {name||'—'}</div>
                         {h>30&&<div style={{fontSize:9,color:'rgba(255,255,255,0.82)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{sv?.name}</div>}
@@ -393,11 +397,52 @@ function CalendarView({data,onCancel,onApptAdded}){
   </div>
 }
 
-// ═══ FINANCE ═══
-function FinanceView({data,onAddExpense,onDelExpense}){
-  const{appts,services,expenses}=data
+// ═══ FACTURACIÓN ═══
+function FacturacionView({data,onAddExpense,onDelExpense}){
+  const{appts,services,expenses,stylists}=data
+  const[tab,setTab]=useState('alumnos')
+
+  // ── GASTOS state ──
   const[period,setPeriod]=useState('month'),[showAdd,setShowAdd]=useState(false)
   const[eAmt,setEAmt]=useState(''),[eDesc,setEDesc]=useState(''),[eCat,setECat]=useState('general'),[eDate,setEDate]=useState(toK(new Date()))
+
+  // ── ALUMNOS state ──
+  const[configs,setConfigs]=useState([])
+  const[fees,setFees]=useState([])
+  const[ldSt,setLdSt]=useState(false)
+  const[dbErr,setDbErr]=useState('')
+  const[configModal,setConfigModal]=useState(null)
+  const[feeModal,setFeeModal]=useState(null)
+  const[addStModal,setAddStModal]=useState(false)
+  const[selStudent,setSelStudent]=useState(null)
+  const[selYear,setSelYear]=useState(new Date().getFullYear())
+
+  const loadSt=async()=>{
+    setLdSt(true);setDbErr('')
+    const[{data:cfg,error:e1},{data:fs,error:e2}]=await Promise.all([
+      supabase.from('student_config').select('*'),
+      supabase.from('student_fees').select('*').order('year').order('month')
+    ])
+    if(e1||e2){setDbErr((e1||e2).message||'Error al cargar datos');setLdSt(false);return}
+    setConfigs(cfg||[]);setFees(fs||[]);setLdSt(false)
+  }
+  useEffect(()=>{if(tab==='alumnos')loadSt()},[tab])
+
+  const saveConfig=async(stylistId,plan,feeAmt,notes)=>{
+    const ex=configs.find(c=>c.stylist_id===stylistId)
+    if(ex)await supabase.from('student_config').update({plan,fee_amount:feeAmt,notes}).eq('stylist_id',stylistId)
+    else await supabase.from('student_config').insert({stylist_id:stylistId,plan,fee_amount:feeAmt,notes})
+    loadSt()
+  }
+  const removeStudent=async(stylistId)=>{
+    await supabase.from('student_config').delete().eq('stylist_id',stylistId)
+    await supabase.from('student_fees').delete().eq('stylist_id',stylistId)
+    loadSt()
+  }
+  const markPaid=async(feeId,amtDue)=>{await supabase.from('student_fees').update({amount_paid:amtDue,paid_at:toK(new Date())}).eq('id',feeId);loadSt()}
+  const markUnpaid=async(feeId)=>{await supabase.from('student_fees').update({amount_paid:0,paid_at:null}).eq('id',feeId);loadSt()}
+
+  // ── GASTOS logic ──
   const now=new Date(),thisMonth=toK(now).slice(0,7)
   const range=period==='week'?{s:toK(getWeekDays(now)[0]),e:toK(getWeekDays(now)[6]),l:`Semana ${fS(getWeekDays(now)[0])} — ${fS(getWeekDays(now)[6])}`}:{s:`${thisMonth}-01`,e:`${thisMonth}-31`,l:`${MO[now.getMonth()]} ${now.getFullYear()}`}
   const fAppts=appts.filter(a=>a.appointment_date>=range.s&&a.appointment_date<=range.e&&(a.status==='confirmed'||a.status==='completed'))
@@ -410,58 +455,234 @@ function FinanceView({data,onAddExpense,onDelExpense}){
   const handleAdd=()=>{if(!eAmt||!eDesc.trim())return;onAddExpense({amount:parseFloat(eAmt),description:eDesc.trim(),category:eCat,expense_date:eDate});setShowAdd(false);setEAmt('');setEDesc('');setECat('general')}
   const handleExport=()=>{const rows=fAppts.map(a=>{const sv=services.find(x=>x.id===a.service_id);const st=data.stylists.find(x=>x.id===a.stylist_id);const pr=data.profiles[a.user_id];return{Fecha:a.appointment_date,Hora:a.appointment_time?.slice(0,5),Cliente:pr?.full_name||'—',Servicio:sv?.name||'—',Barbero:st?.name||'—',Precio:sv?Number(sv.price).toFixed(2):'0',Estado:a.status}});if(rows.length>0)exportCSV(rows,`ingresos_${range.s}_${range.e}`)}
   const handleExportExp=()=>{const rows=fExp.map(e=>({Fecha:e.expense_date,Descripcion:e.description,Categoria:e.category,Importe:Number(e.amount).toFixed(2)}));if(rows.length>0)exportCSV(rows,`gastos_${range.s}_${range.e}`)}
+
+  // ── ALUMNOS helpers ──
+  const thisM=now.getMonth()+1,thisY=now.getFullYear()
+  const enrolled=stylists.filter(s=>configs.some(c=>c.stylist_id===s.id))
+  const available=stylists.filter(s=>!configs.some(c=>c.stylist_id===s.id))
+  const getDebt=id=>fees.filter(f=>f.stylist_id===id).reduce((s,f)=>s+(Number(f.amount_due)-Number(f.amount_paid)),0)
+  const getTotal=id=>fees.filter(f=>f.stylist_id===id).reduce((s,f)=>s+Number(f.amount_due),0)
+  const getPaid=id=>fees.filter(f=>f.stylist_id===id).reduce((s,f)=>s+Number(f.amount_paid),0)
+  const totalDebt=enrolled.reduce((s,st)=>s+Math.max(0,getDebt(st.id)),0)
+  const cobradoMes=fees.filter(f=>f.year===thisY&&f.month===thisM&&Number(f.amount_paid)>=Number(f.amount_due)&&Number(f.amount_due)>0).reduce((s,f)=>s+Number(f.amount_paid),0)
+  const pendienteMes=fees.filter(f=>f.year===thisY&&f.month===thisM&&Number(f.amount_paid)<Number(f.amount_due)).reduce((s,f)=>s+(Number(f.amount_due)-Number(f.amount_paid)),0)
+
   return<div>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
-      <div><h1 style={{fontSize:24,fontWeight:900}}>Finanzas</h1><p style={{fontSize:14,color:'var(--text3)'}}>{range.l}</p></div>
-      <div style={{display:'flex',gap:8}}>
-        <div style={{display:'flex',background:'var(--white)',borderRadius:9,padding:3,border:'1.5px solid var(--border)'}}>
-          {[['week','Semana'],['month','Mes']].map(([id,l])=><button key={id} onClick={()=>setPeriod(id)} style={{padding:'7px 14px',fontSize:12,fontWeight:700,fontFamily:'inherit',border:'none',borderRadius:7,cursor:'pointer',background:period===id?'var(--purple-grad)':'transparent',color:period===id?'#fff':'var(--text3)'}}>{l}</button>)}
+      <div><h1 style={{fontSize:24,fontWeight:900}}>Facturación</h1></div>
+      <div style={{display:'flex',background:'var(--white)',borderRadius:9,padding:3,border:'1.5px solid var(--border)'}}>
+        {[['alumnos','🎓 Alumnos'],['gastos','💰 Gastos']].map(([id,l])=><button key={id} onClick={()=>setTab(id)} style={{padding:'7px 16px',fontSize:12,fontWeight:700,fontFamily:'inherit',border:'none',borderRadius:7,cursor:'pointer',background:tab===id?'var(--purple-grad)':'transparent',color:tab===id?'#fff':'var(--text3)'}}>{l}</button>)}
+      </div>
+    </div>
+
+    {tab==='alumnos'&&<div>
+      {dbErr&&<div style={{padding:'14px 18px',background:'var(--red-bg)',border:'1.5px solid rgba(220,38,38,0.2)',borderRadius:12,marginBottom:20}}>
+        <p style={{fontSize:14,fontWeight:700,color:'var(--red)',marginBottom:4}}>⚠️ Tablas no encontradas en Supabase</p>
+        <p style={{fontSize:12,color:'var(--red)',marginBottom:8}}>{dbErr}</p>
+        <p style={{fontSize:12,color:'var(--text2)'}}>Ejecuta el SQL de configuración en Supabase Dashboard para activar esta sección.</p>
+      </div>}
+      {!dbErr&&<>
+        <div style={{display:'flex',gap:14,marginBottom:20,flexWrap:'wrap'}}>
+          <Stat label="Cobrado este mes" value={`${cobradoMes.toFixed(0)}€`} icon="✅" color="var(--green)" bg="var(--green-bg)"/>
+          <Stat label="Pendiente este mes" value={`${pendienteMes.toFixed(0)}€`} icon="⏳" color="var(--yellow)" bg="var(--yellow-bg)"/>
+          <Stat label="Deuda total" value={`${totalDebt.toFixed(0)}€`} icon="⚠️" color="var(--red)" bg="var(--red-bg)"/>
+          <Stat label="Alumnos" value={enrolled.length} icon="🎓" color="var(--blue)" bg="var(--blue-bg)"/>
         </div>
-        <Btn small variant="secondary" onClick={handleExport}>📥 Ingresos CSV</Btn>
-        <Btn small variant="secondary" onClick={handleExportExp}>📥 Gastos CSV</Btn>
-      </div>
-    </div>
-    <div style={{display:'flex',gap:14,marginBottom:20,flexWrap:'wrap'}}>
-      <Stat label="Ingresos" value={`${revenue.toFixed(0)}€`} icon="💰" color="var(--green)" bg="var(--green-bg)" sub={`${fAppts.length} citas`}/>
-      <Stat label="Gastos" value={`${totalExp.toFixed(0)}€`} icon="📉" color="var(--red)" bg="var(--red-bg)" sub={`${fExp.length} gastos`}/>
-      <Stat label="Beneficio neto" value={`${profit.toFixed(0)}€`} icon={profit>=0?"✅":"⚠️"} color={profit>=0?"var(--green)":"var(--red)"} bg={profit>=0?"var(--green-bg)":"var(--red-bg)"} sub={revenue>0?`Margen: ${(profit/revenue*100).toFixed(0)}%`:''}/>
-      <Stat label="Media por cita" value={fAppts.length>0?`${(revenue/fAppts.length).toFixed(0)}€`:'—'} icon="📊"/>
-    </div>
-    <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:14,marginBottom:20}}>
-      <div className="fade" style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',padding:20,boxShadow:'var(--shadow)'}}>
-        <h3 style={{fontSize:15,fontWeight:700,marginBottom:14}}>Ingresos por día</h3>
-        <div style={{display:'flex',alignItems:'flex-end',gap:3,height:140}}>
-          {Object.entries(byDay).sort().map(([day,rev])=><div key={day} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:3}}><div style={{fontSize:9,fontWeight:600,color:'var(--purple)'}}>{rev.toFixed(0)}€</div><div style={{width:'100%',maxWidth:36,background:'var(--purple-grad)',borderRadius:3,height:`${Math.max((rev/maxD)*110,4)}px`}}/><div style={{fontSize:9,color:'var(--text3)'}}>{new Date(day+'T12:00').getDate()}</div></div>)}
-          {Object.keys(byDay).length===0&&<p style={{fontSize:13,color:'var(--text3)',width:'100%',textAlign:'center',paddingTop:50}}>Sin datos</p>}
+        <div style={{display:'flex',justifyContent:'flex-end',marginBottom:14}}>
+          {available.length>0&&<Btn onClick={()=>setAddStModal(true)}>+ Añadir alumno</Btn>}
+        </div>
+        {ldSt?<Sp/>:enrolled.length===0
+          ?<div style={{textAlign:'center',padding:'60px 20px',color:'var(--text3)'}}><div style={{fontSize:40,marginBottom:12,opacity:0.3}}>🎓</div><p style={{fontSize:14}}>Sin alumnos inscritos. Añade el primero.</p></div>
+          :<div style={{display:'flex',flexDirection:'column',gap:12}}>
+            {enrolled.map(st=>{
+              const cfg=configs.find(c=>c.stylist_id===st.id)
+              const plan=PLANS.find(p=>p.id===cfg?.plan)||PLANS[0]
+              const debt=getDebt(st.id),totalDue=getTotal(st.id),totalPaid=getPaid(st.id)
+              const feeThisM=fees.find(f=>f.stylist_id===st.id&&f.year===thisY&&f.month===thisM)
+              const isPaidM=feeThisM&&Number(feeThisM.amount_paid)>=Number(feeThisM.amount_due)
+              const isExp=selStudent===st.id
+              return<div key={st.id} className="fade" style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',boxShadow:'var(--shadow)',overflow:'hidden'}}>
+                <div style={{padding:'16px 20px',display:'flex',alignItems:'center',gap:14}}>
+                  <div style={{width:42,height:42,borderRadius:10,background:plan.bg,display:'flex',alignItems:'center',justifyContent:'center',fontSize:17,fontWeight:800,color:plan.color,flexShrink:0}}>{st.name[0]}</div>
+                  <div style={{flex:1,minWidth:0}}>
+                    <div style={{display:'flex',alignItems:'center',gap:7,marginBottom:5,flexWrap:'wrap'}}>
+                      <span style={{fontSize:15,fontWeight:700}}>{st.name}</span>
+                      <span style={{fontSize:10,fontWeight:700,color:plan.color,background:plan.bg,padding:'2px 9px',borderRadius:20,whiteSpace:'nowrap'}}>{plan.label}</span>
+                      {debt>0.01&&<span style={{fontSize:10,fontWeight:700,color:'var(--red)',background:'var(--red-bg)',padding:'2px 9px',borderRadius:20,whiteSpace:'nowrap'}}>Debe {debt.toFixed(0)}€</span>}
+                      {debt<=0.01&&totalDue>0&&<span style={{fontSize:10,fontWeight:700,color:'var(--green)',background:'var(--green-bg)',padding:'2px 9px',borderRadius:20,whiteSpace:'nowrap'}}>Al día</span>}
+                    </div>
+                    <div style={{fontSize:12,color:'var(--text3)',display:'flex',gap:14,flexWrap:'wrap'}}>
+                      <span>{cfg?.fee_amount||0}€/mes</span>
+                      <span>Total acumulado: <b style={{color:'var(--text)'}}>{totalDue.toFixed(0)}€</b></span>
+                      <span>Pagado: <b style={{color:'var(--green)'}}>{totalPaid.toFixed(0)}€</b></span>
+                      {feeThisM&&<span style={{color:isPaidM?'var(--green)':'var(--orange)',fontWeight:600}}>{isPaidM?'✓ Pagado este mes':'⏳ Pendiente este mes'}</span>}
+                      {!feeThisM&&<span style={{color:'var(--text3)'}}>No inscrito este mes</span>}
+                    </div>
+                  </div>
+                  <div style={{display:'flex',gap:6,flexShrink:0}}>
+                    <Btn small variant="secondary" onClick={()=>setConfigModal({stylist:st,config:cfg})}>⚙️</Btn>
+                    <Btn small variant={isExp?'primary':'secondary'} onClick={()=>setSelStudent(isExp?null:st.id)}>{isExp?'Cerrar':'Meses'}</Btn>
+                  </div>
+                </div>
+                {isExp&&<div style={{borderTop:'1.5px solid var(--border)',padding:'16px 20px',background:'var(--bg)'}}>
+                  <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+                    <div style={{display:'flex',gap:8,alignItems:'center'}}>
+                      <Btn small variant="ghost" onClick={()=>setSelYear(y=>y-1)}>←</Btn>
+                      <span style={{fontSize:15,fontWeight:700}}>{selYear}</span>
+                      <Btn small variant="ghost" onClick={()=>setSelYear(y=>y+1)}>→</Btn>
+                    </div>
+                    <div style={{fontSize:11,color:'var(--text3)',display:'flex',gap:12}}>
+                      {[['var(--green)','Pagado'],['var(--red)','Pendiente'],['var(--border2)','No inscrito']].map(([c,l])=><span key={l} style={{display:'flex',alignItems:'center',gap:4}}><span style={{width:10,height:10,borderRadius:3,background:c,display:'inline-block'}}/>{l}</span>)}
+                    </div>
+                  </div>
+                  <div style={{display:'grid',gridTemplateColumns:'repeat(6,1fr)',gap:8}}>
+                    {MS.map((m,i)=>{
+                      const mn=i+1
+                      const fee=fees.find(f=>f.stylist_id===st.id&&f.year===selYear&&f.month===mn)
+                      const enrolled=!!fee
+                      const paid=enrolled&&Number(fee.amount_paid)>=Number(fee.amount_due)&&Number(fee.amount_due)>0
+                      const isCurr=selYear===thisY&&mn===thisM
+                      return<div key={m} style={{borderRadius:10,border:`1.5px solid ${paid?'rgba(22,163,74,0.3)':enrolled?'rgba(220,38,38,0.3)':'var(--border)'}`,background:paid?'var(--green-bg)':enrolled?'var(--red-bg)':'var(--white)',padding:'10px 6px',textAlign:'center',position:'relative'}}>
+                        {isCurr&&<div style={{position:'absolute',top:4,right:4,width:6,height:6,borderRadius:3,background:'var(--purple)'}}/>}
+                        <div style={{fontSize:11,fontWeight:700,color:paid?'var(--green)':enrolled?'var(--red)':'var(--text3)',marginBottom:3}}>{m}</div>
+                        {enrolled?<div style={{fontSize:11,fontWeight:600,color:'var(--text2)',marginBottom:7}}>{Number(fee.amount_due).toFixed(0)}€</div>:<div style={{fontSize:11,color:'var(--text3)',marginBottom:7}}>—</div>}
+                        <div style={{display:'flex',flexDirection:'column',gap:3}}>
+                          {enrolled&&!paid&&<button onClick={()=>markPaid(fee.id,fee.amount_due)} style={{fontSize:9,fontWeight:700,background:'var(--green)',color:'#fff',border:'none',borderRadius:5,padding:'3px 0',cursor:'pointer',fontFamily:'inherit'}}>Pagar</button>}
+                          {enrolled&&paid&&<button onClick={()=>markUnpaid(fee.id)} style={{fontSize:9,fontWeight:600,background:'var(--white)',color:'var(--text3)',border:'1px solid var(--border)',borderRadius:5,padding:'3px 0',cursor:'pointer',fontFamily:'inherit'}}>Desmarcar</button>}
+                          <button onClick={()=>setFeeModal({stylistId:st.id,year:selYear,month:mn,existing:fee,cfg})} style={{fontSize:9,fontWeight:600,background:'var(--white)',color:'var(--text2)',border:'1px solid var(--border)',borderRadius:5,padding:'3px 0',cursor:'pointer',fontFamily:'inherit'}}>{enrolled?'Editar':'+Inscribir'}</button>
+                        </div>
+                      </div>
+                    })}
+                  </div>
+                </div>}
+              </div>
+            })}
+          </div>}
+      </>}
+    </div>}
+
+    {tab==='gastos'&&<div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+        <p style={{fontSize:14,color:'var(--text3)'}}>{range.l}</p>
+        <div style={{display:'flex',gap:8}}>
+          <div style={{display:'flex',background:'var(--white)',borderRadius:9,padding:3,border:'1.5px solid var(--border)'}}>
+            {[['week','Semana'],['month','Mes']].map(([id,l])=><button key={id} onClick={()=>setPeriod(id)} style={{padding:'7px 14px',fontSize:12,fontWeight:700,fontFamily:'inherit',border:'none',borderRadius:7,cursor:'pointer',background:period===id?'var(--purple-grad)':'transparent',color:period===id?'#fff':'var(--text3)'}}>{l}</button>)}
+          </div>
+          <Btn small variant="secondary" onClick={handleExport}>📥 Ingresos CSV</Btn>
+          <Btn small variant="secondary" onClick={handleExportExp}>📥 Gastos CSV</Btn>
         </div>
       </div>
-      <div className="fade fd1" style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',padding:20,boxShadow:'var(--shadow)'}}>
-        <h3 style={{fontSize:15,fontWeight:700,marginBottom:14}}>Gastos por categoría</h3>
-        {Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([cat,amt])=>{const c=EXPENSE_CATS.find(x=>x.id===cat);return<div key={cat} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 0',borderBottom:'1px solid var(--border)'}}><span style={{fontSize:14}}>{c?.icon||'📦'}</span><span style={{flex:1,fontSize:13,fontWeight:500}}>{c?.label||cat}</span><span style={{fontSize:13,fontWeight:700,color:'var(--red)'}}>{amt.toFixed(0)}€</span></div>})}
-        {Object.keys(byCat).length===0&&<p style={{fontSize:13,color:'var(--text3)'}}>Sin gastos</p>}
+      <div style={{display:'flex',gap:14,marginBottom:20,flexWrap:'wrap'}}>
+        <Stat label="Ingresos" value={`${revenue.toFixed(0)}€`} icon="💰" color="var(--green)" bg="var(--green-bg)" sub={`${fAppts.length} citas`}/>
+        <Stat label="Gastos" value={`${totalExp.toFixed(0)}€`} icon="📉" color="var(--red)" bg="var(--red-bg)" sub={`${fExp.length} gastos`}/>
+        <Stat label="Beneficio neto" value={`${profit.toFixed(0)}€`} icon={profit>=0?"✅":"⚠️"} color={profit>=0?"var(--green)":"var(--red)"} bg={profit>=0?"var(--green-bg)":"var(--red-bg)"} sub={revenue>0?`Margen: ${(profit/revenue*100).toFixed(0)}%`:''}/>
+        <Stat label="Media por cita" value={fAppts.length>0?`${(revenue/fAppts.length).toFixed(0)}€`:'—'} icon="📊"/>
       </div>
-    </div>
-    <div className="fade fd2" style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',boxShadow:'var(--shadow)',overflow:'hidden'}}>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'16px 20px',borderBottom:'1.5px solid var(--border)'}}>
-        <h3 style={{fontSize:15,fontWeight:700}}>Gastos</h3><Btn small onClick={()=>setShowAdd(true)}>+ Añadir gasto</Btn>
+      <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:14,marginBottom:20}}>
+        <div className="fade" style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',padding:20,boxShadow:'var(--shadow)'}}>
+          <h3 style={{fontSize:15,fontWeight:700,marginBottom:14}}>Ingresos por día</h3>
+          <div style={{display:'flex',alignItems:'flex-end',gap:3,height:140}}>
+            {Object.entries(byDay).sort().map(([day,rev])=><div key={day} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',gap:3}}><div style={{fontSize:9,fontWeight:600,color:'var(--purple)'}}>{rev.toFixed(0)}€</div><div style={{width:'100%',maxWidth:36,background:'var(--purple-grad)',borderRadius:3,height:`${Math.max((rev/maxD)*110,4)}px`}}/><div style={{fontSize:9,color:'var(--text3)'}}>{new Date(day+'T12:00').getDate()}</div></div>)}
+            {Object.keys(byDay).length===0&&<p style={{fontSize:13,color:'var(--text3)',width:'100%',textAlign:'center',paddingTop:50}}>Sin datos</p>}
+          </div>
+        </div>
+        <div className="fade fd1" style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',padding:20,boxShadow:'var(--shadow)'}}>
+          <h3 style={{fontSize:15,fontWeight:700,marginBottom:14}}>Gastos por categoría</h3>
+          {Object.entries(byCat).sort((a,b)=>b[1]-a[1]).map(([cat,amt])=>{const c=EXPENSE_CATS.find(x=>x.id===cat);return<div key={cat} style={{display:'flex',alignItems:'center',gap:8,padding:'6px 0',borderBottom:'1px solid var(--border)'}}><span style={{fontSize:14}}>{c?.icon||'📦'}</span><span style={{flex:1,fontSize:13,fontWeight:500}}>{c?.label||cat}</span><span style={{fontSize:13,fontWeight:700,color:'var(--red)'}}>{amt.toFixed(0)}€</span></div>})}
+          {Object.keys(byCat).length===0&&<p style={{fontSize:13,color:'var(--text3)'}}>Sin gastos</p>}
+        </div>
       </div>
-      {fExp.length===0?<div style={{padding:30,textAlign:'center',color:'var(--text3)',fontSize:13}}>Sin gastos en este período</div>:
-      fExp.sort((a,b)=>b.expense_date.localeCompare(a.expense_date)).map((e,i)=>{const c=EXPENSE_CATS.find(x=>x.id===e.category);return<div key={e.id} style={{display:'flex',alignItems:'center',gap:14,padding:'12px 20px',borderBottom:i<fExp.length-1?'1px solid var(--border)':'none'}}>
-        <div style={{width:36,height:36,borderRadius:9,background:'var(--red-bg)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16}}>{c?.icon||'📦'}</div>
-        <div style={{flex:1}}><div style={{fontSize:14,fontWeight:500}}>{e.description}</div><div style={{fontSize:12,color:'var(--text3)'}}>{c?.label||e.category} · {fS(new Date(e.expense_date+'T12:00'))}</div></div>
-        <div style={{fontSize:15,fontWeight:700,color:'var(--red)'}}>-{Number(e.amount).toFixed(2)}€</div>
-        <Btn small variant="danger" onClick={()=>onDelExpense(e.id)}>✕</Btn>
-      </div>})}
-    </div>
-    {showAdd&&<Modal onClose={()=>setShowAdd(false)}>
-      <h3 style={{fontSize:18,fontWeight:900,marginBottom:18}}>Añadir gasto</h3>
-      <Inp label="Importe (€)" required type="number" step="0.01" value={eAmt} onChange={e=>setEAmt(e.target.value)} placeholder="0.00"/>
-      <Inp label="Descripción" required value={eDesc} onChange={e=>setEDesc(e.target.value)} placeholder="Ej: Compra productos..."/>
-      <Sel label="Categoría" value={eCat} onChange={e=>setECat(e.target.value)}>{EXPENSE_CATS.map(c=><option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}</Sel>
-      <Inp label="Fecha" type="date" value={eDate} onChange={e=>setEDate(e.target.value)}/>
-      <div style={{display:'flex',gap:10,marginTop:8}}><Btn variant="secondary" onClick={()=>setShowAdd(false)} style={{flex:1}}>Cancelar</Btn><Btn onClick={handleAdd} disabled={!eAmt||!eDesc.trim()} style={{flex:1}}>Guardar</Btn></div>
+      <div className="fade fd2" style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',boxShadow:'var(--shadow)',overflow:'hidden'}}>
+        <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',padding:'16px 20px',borderBottom:'1.5px solid var(--border)'}}>
+          <h3 style={{fontSize:15,fontWeight:700}}>Gastos</h3><Btn small onClick={()=>setShowAdd(true)}>+ Añadir gasto</Btn>
+        </div>
+        {fExp.length===0?<div style={{padding:30,textAlign:'center',color:'var(--text3)',fontSize:13}}>Sin gastos en este período</div>:
+        fExp.sort((a,b)=>b.expense_date.localeCompare(a.expense_date)).map((e,i)=>{const c=EXPENSE_CATS.find(x=>x.id===e.category);return<div key={e.id} style={{display:'flex',alignItems:'center',gap:14,padding:'12px 20px',borderBottom:i<fExp.length-1?'1px solid var(--border)':'none'}}>
+          <div style={{width:36,height:36,borderRadius:9,background:'var(--red-bg)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:16}}>{c?.icon||'📦'}</div>
+          <div style={{flex:1}}><div style={{fontSize:14,fontWeight:500}}>{e.description}</div><div style={{fontSize:12,color:'var(--text3)'}}>{c?.label||e.category} · {fS(new Date(e.expense_date+'T12:00'))}</div></div>
+          <div style={{fontSize:15,fontWeight:700,color:'var(--red)'}}>-{Number(e.amount).toFixed(2)}€</div>
+          <Btn small variant="danger" onClick={()=>onDelExpense(e.id)}>✕</Btn>
+        </div>})}
+      </div>
+      {showAdd&&<Modal onClose={()=>setShowAdd(false)}>
+        <h3 style={{fontSize:18,fontWeight:900,marginBottom:18}}>Añadir gasto</h3>
+        <Inp label="Importe (€)" required type="number" step="0.01" value={eAmt} onChange={e=>setEAmt(e.target.value)} placeholder="0.00"/>
+        <Inp label="Descripción" required value={eDesc} onChange={e=>setEDesc(e.target.value)} placeholder="Ej: Compra productos..."/>
+        <Sel label="Categoría" value={eCat} onChange={e=>setECat(e.target.value)}>{EXPENSE_CATS.map(c=><option key={c.id} value={c.id}>{c.icon} {c.label}</option>)}</Sel>
+        <Inp label="Fecha" type="date" value={eDate} onChange={e=>setEDate(e.target.value)}/>
+        <div style={{display:'flex',gap:10,marginTop:8}}><Btn variant="secondary" onClick={()=>setShowAdd(false)} style={{flex:1}}>Cancelar</Btn><Btn onClick={handleAdd} disabled={!eAmt||!eDesc.trim()} style={{flex:1}}>Guardar</Btn></div>
+      </Modal>}
+    </div>}
+
+    {/* Añadir alumno */}
+    {addStModal&&<Modal onClose={()=>setAddStModal(false)}>
+      <h3 style={{fontSize:18,fontWeight:900,marginBottom:18}}>Añadir alumno</h3>
+      <StudentForm stylists={available} onSave={async(sid,plan,fee,notes)=>{await saveConfig(sid,plan,fee,notes);setAddStModal(false)}} onClose={()=>setAddStModal(false)}/>
+    </Modal>}
+
+    {/* Editar configuración alumno */}
+    {configModal&&<Modal onClose={()=>setConfigModal(null)}>
+      <h3 style={{fontSize:18,fontWeight:900,marginBottom:18}}>Configurar alumno — {configModal.stylist.name}</h3>
+      <StudentForm
+        stylists={[configModal.stylist]} fixedStylist
+        initialPlan={configModal.config?.plan||'iniciacion'}
+        initialFee={configModal.config?.fee_amount||0}
+        initialNotes={configModal.config?.notes||''}
+        onSave={async(_,plan,fee,notes)=>{await saveConfig(configModal.stylist.id,plan,fee,notes);setConfigModal(null)}}
+        onDelete={async()=>{await removeStudent(configModal.stylist.id);setConfigModal(null)}}
+        onClose={()=>setConfigModal(null)}
+      />
+    </Modal>}
+
+    {/* Añadir / editar mes */}
+    {feeModal&&<Modal onClose={()=>setFeeModal(null)}>
+      <h3 style={{fontSize:18,fontWeight:900,marginBottom:4}}>{feeModal.existing?'Editar':'Inscribir'} mes</h3>
+      <p style={{fontSize:13,color:'var(--text3)',marginBottom:18}}>{MS[feeModal.month-1]} {feeModal.year} · {stylists.find(s=>s.id===feeModal.stylistId)?.name}</p>
+      <FeeForm
+        defaultAmt={feeModal.cfg?.fee_amount||0}
+        existing={feeModal.existing}
+        onSave={async(amtDue,amtPaid,notes)=>{
+          const paidAt=amtPaid>=amtDue?toK(new Date()):null
+          if(feeModal.existing)await supabase.from('student_fees').update({amount_due:amtDue,amount_paid:amtPaid,notes,paid_at:paidAt}).eq('id',feeModal.existing.id)
+          else await supabase.from('student_fees').insert({stylist_id:feeModal.stylistId,year:feeModal.year,month:feeModal.month,amount_due:amtDue,amount_paid:amtPaid,notes,paid_at:paidAt})
+          loadSt();setFeeModal(null)
+        }}
+        onDelete={feeModal.existing?async()=>{await supabase.from('student_fees').delete().eq('id',feeModal.existing.id);loadSt();setFeeModal(null)}:null}
+        onClose={()=>setFeeModal(null)}
+      />
     </Modal>}
   </div>
+}
+
+function StudentForm({stylists,fixedStylist,initialPlan='iniciacion',initialFee=0,initialNotes='',onSave,onDelete,onClose}){
+  const[sid,setSid]=useState(String(stylists[0]?.id||''))
+  const[plan,setPlan]=useState(initialPlan)
+  const[fee,setFee]=useState(String(initialFee))
+  const[notes,setNotes]=useState(initialNotes)
+  const[delConf,setDelConf]=useState(false)
+  return<>
+    {!fixedStylist&&<Sel label="Alumno" value={sid} onChange={e=>setSid(e.target.value)}>{stylists.map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</Sel>}
+    <Sel label="Plan" value={plan} onChange={e=>setPlan(e.target.value)}>{PLANS.map(p=><option key={p.id} value={p.id}>{p.label}</option>)}</Sel>
+    <Inp label="Cuota mensual (€)" type="number" step="0.01" value={fee} onChange={e=>setFee(e.target.value)} placeholder="0.00"/>
+    <Inp label="Notas (opcional)" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Ej: descuento especial..."/>
+    {onDelete&&!delConf&&<div style={{marginBottom:13}}><Btn full variant="danger" small onClick={()=>setDelConf(true)}>Dar de baja al alumno</Btn></div>}
+    {delConf&&<div style={{padding:'10px 14px',background:'var(--red-bg)',borderRadius:9,marginBottom:13,border:'1px solid rgba(220,38,38,0.2)'}}><p style={{fontSize:13,color:'var(--red)',marginBottom:8,fontWeight:600}}>¿Eliminar alumno y todos sus registros?</p><div style={{display:'flex',gap:8}}><Btn variant="secondary" small onClick={()=>setDelConf(false)} style={{flex:1}}>No</Btn><Btn variant="danger" small onClick={onDelete} style={{flex:1}}>Sí, eliminar</Btn></div></div>}
+    <div style={{display:'flex',gap:8}}><Btn variant="secondary" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={()=>onSave(Number(sid),plan,parseFloat(fee)||0,notes)} disabled={!sid||!fee} style={{flex:1}}>Guardar</Btn></div>
+  </>
+}
+
+function FeeForm({defaultAmt,existing,onSave,onDelete,onClose}){
+  const[amtDue,setAmtDue]=useState(String(existing?.amount_due??defaultAmt))
+  const[amtPaid,setAmtPaid]=useState(String(existing?.amount_paid??0))
+  const[notes,setNotes]=useState(existing?.notes||'')
+  return<>
+    <Inp label="Importe a pagar (€)" type="number" step="0.01" value={amtDue} onChange={e=>setAmtDue(e.target.value)} placeholder="0.00"/>
+    <Inp label="Importe pagado (€)" type="number" step="0.01" value={amtPaid} onChange={e=>setAmtPaid(e.target.value)} placeholder="0.00"/>
+    {parseFloat(amtPaid)>0&&parseFloat(amtPaid)>=parseFloat(amtDue)&&<div style={{padding:'8px 12px',background:'var(--green-bg)',borderRadius:9,marginBottom:13,fontSize:13,color:'var(--green)',fontWeight:600}}>✓ Mes marcado como pagado</div>}
+    <Inp label="Notas (opcional)" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Ej: pago en efectivo..."/>
+    {onDelete&&<div style={{marginBottom:13}}><Btn full variant="danger" small onClick={onDelete}>Quitar inscripción de este mes</Btn></div>}
+    <div style={{display:'flex',gap:8}}><Btn variant="secondary" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={()=>onSave(parseFloat(amtDue)||0,parseFloat(amtPaid)||0,notes)} disabled={!amtDue} style={{flex:1}}>Guardar</Btn></div>
+  </>
 }
 
 // ═══ BARBER ANALYTICS ═══
@@ -683,7 +904,7 @@ export default function App(){
     <main style={{flex:1,marginLeft:'var(--sidebar-w)',padding:'24px 28px',maxWidth:'calc(100vw - var(--sidebar-w))'}}>
       {page==='dash'&&<Dashboard data={D}/>}
       {page==='cal'&&<CalendarView data={D} onCancel={cancelAppt} onApptAdded={loadAll}/>}
-      {page==='finance'&&<FinanceView data={D} onAddExpense={addExpense} onDelExpense={delExpense}/>}
+      {page==='finance'&&<FacturacionView data={D} onAddExpense={addExpense} onDelExpense={delExpense}/>}
       {page==='barbers'&&<BarberStats data={D}/>}
       {page==='clients'&&<ClientsView data={D}/>}
       {page==='team'&&<TeamView data={D} onSave={saveSty} onDel={delSty}/>}
