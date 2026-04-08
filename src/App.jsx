@@ -399,46 +399,147 @@ function CalendarView({data,onCancel,onApptAdded}){
 
 const MS_FULL=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
 
-const exportStudentsXLSX=(enrolled,configs,fees)=>{
+const exportStudentsXLSX=(enrolled,configs,fees,yr)=>{
+  const MN=['Ene','Feb','Mar','Abr','May','Jun','Jul','Ago','Sep','Oct','Nov','Dic']
   const esc=v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-  const cell=(v,bold=false,bg='',num=false)=>{
-    let style=''
-    if(bold||bg)style=` style="${bold?'font-weight:bold;':''} ${bg?`background:${bg};color:${bg==='#6D28D9'?'#fff':'inherit'};`:''}"`
-    if(num)return`<td${style}>${Number(v)||0}</td>`
-    return`<td${style}>${esc(String(v??''))}</td>`
+  const getFee=(sid,m)=>fees.find(f=>f.stylist_id===sid&&f.year===yr&&f.month===m)
+  const n2=(v)=>parseFloat(Number(v).toFixed(2))
+
+  // Cell helpers (SpreadsheetML)
+  const S=(v,sid='')=>`<Cell${sid?` ss:StyleID="${sid}"`:''}><Data ss:Type="String">${esc(String(v??''))}</Data></Cell>`
+  const N=(v,sid='num')=>`<Cell ss:StyleID="${sid}"><Data ss:Type="Number">${n2(v)}</Data></Cell>`
+  const E=()=>`<Cell/>`
+  const R=(...cells)=>`<Row>${cells.join('')}</Row>`
+  const ER=()=>`<Row><Cell ss:StyleID="emp"/></Row>`
+
+  const STYLES=`<Styles>
+<Style ss:ID="Default"><Font ss:FontName="Calibri" ss:Size="11" ss:Color="#1A0A3B"/></Style>
+<Style ss:ID="emp"><Font ss:FontName="Calibri" ss:Size="6"/></Style>
+<Style ss:ID="hdr"><Font ss:Bold="1" ss:Color="#FFFFFF" ss:FontName="Calibri" ss:Size="11"/><Interior ss:Color="#6D28D9" ss:Pattern="Solid"/></Style>
+<Style ss:ID="hdr2"><Font ss:Bold="1" ss:Color="#FFFFFF" ss:FontName="Calibri" ss:Size="11"/><Interior ss:Color="#7C3AED" ss:Pattern="Solid"/></Style>
+<Style ss:ID="tot"><Font ss:Bold="1" ss:FontName="Calibri"/><Interior ss:Color="#EDE9FE" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0.00"/></Style>
+<Style ss:ID="tots"><Font ss:Bold="1" ss:FontName="Calibri"/><Interior ss:Color="#EDE9FE" ss:Pattern="Solid"/></Style>
+<Style ss:ID="num"><NumberFormat ss:Format="#,##0.00"/></Style>
+<Style ss:ID="paid"><Interior ss:Color="#DCFCE7" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0.00"/></Style>
+<Style ss:ID="debt"><Interior ss:Color="#FEE2E2" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0.00"/></Style>
+<Style ss:ID="lbl"><Font ss:Bold="1" ss:FontName="Calibri"/></Style>
+</Styles>`
+
+  // ── Hoja 1: Resumen Anual ──
+  const buildResumen=()=>{
+    let rows=''
+    // Título
+    rows+=R(S(`Resumen Anual ${yr}`,'hdr'),...Array(13).fill(E()))
+    rows+=ER()
+
+    // Tabla matriz alumno × mes
+    rows+=R(S('Alumno','hdr'),S('Plan','hdr'),...MN.map(m=>S(m,'hdr')),S('Facturado','hdr'),S('Pagado','hdr'),S('Deuda','hdr'))
+    const colDue=new Array(12).fill(0),colPaid=new Array(12).fill(0)
+    let gDue=0,gPaid=0
+    enrolled.forEach(st=>{
+      const cfg=configs.find(c=>c.stylist_id===st.id)
+      const plan=PLANS.find(p=>p.id===cfg?.plan)?.label||'Iniciación'
+      let sDue=0,sPaid=0
+      const mCells=MN.map((_,i)=>{
+        const f=getFee(st.id,i+1)
+        if(!f)return S('—')
+        const isPaid=Number(f.amount_paid)>=Number(f.amount_due)&&Number(f.amount_due)>0
+        colDue[i]+=Number(f.amount_due);colPaid[i]+=Number(f.amount_paid)
+        sDue+=Number(f.amount_due);sPaid+=Number(f.amount_paid)
+        return N(f.amount_due,isPaid?'paid':'debt')
+      })
+      gDue+=sDue;gPaid+=sPaid
+      const deuda=sDue-sPaid
+      rows+=R(S(st.name),S(plan),...mCells,N(sDue),N(sPaid),N(deuda,deuda>0.01?'debt':'num'))
+    })
+    rows+=R(S('TOTAL','tots'),S('','tots'),...colDue.map((_,i)=>N(colDue[i],'tot')),N(gDue,'tot'),N(gPaid,'tot'),N(gDue-gPaid,'tot'))
+    rows+=ER();rows+=ER()
+
+    // Tabla resumen ejecutivo
+    rows+=R(S('Indicador','hdr2'),S('Valor','hdr2'))
+    rows+=R(S('Año',    'lbl'),S(String(yr)))
+    rows+=R(S('Total alumnos','lbl'),S(String(enrolled.length)))
+    rows+=R(S('Total facturado (€)','lbl'),N(gDue,'num'))
+    rows+=R(S('Total cobrado (€)','lbl'),N(gPaid,'num'))
+    rows+=R(S('Deuda total (€)','lbl'),N(gDue-gPaid,gDue-gPaid>0.01?'debt':'num'))
+    rows+=R(S('% de cobro','lbl'),S(gDue>0?((gPaid/gDue)*100).toFixed(1)+'%':'—'))
+    const alDia=enrolled.filter(st=>{const sf=fees.filter(f=>f.stylist_id===st.id&&f.year===yr);return sf.length>0&&sf.every(f=>Number(f.amount_paid)>=Number(f.amount_due))})
+    rows+=R(S('Alumnos al día','lbl'),S(String(alDia.length)))
+    rows+=R(S('Alumnos con deuda','lbl'),S(String(enrolled.filter(st=>fees.filter(f=>f.stylist_id===st.id&&f.year===yr).some(f=>Number(f.amount_paid)<Number(f.amount_due))).length)))
+    return rows
   }
 
-  // ── Hoja 1: Resumen ──
-  let t1=`<tr>${['Alumno','Plan','Cuota/mes (€)','Total facturado (€)','Total pagado (€)','Deuda (€)'].map(h=>`<th style="background:#6D28D9;color:#fff;font-weight:bold">${h}</th>`).join('')}</tr>`
-  let totDue=0,totPaid=0
-  enrolled.forEach(st=>{
-    const cfg=configs.find(c=>c.stylist_id===st.id)
-    const plan=PLANS.find(p=>p.id===cfg?.plan)?.label||'Iniciación'
-    const stFees=fees.filter(f=>f.stylist_id===st.id)
-    const due=stFees.reduce((s,f)=>s+Number(f.amount_due),0)
-    const paid=stFees.reduce((s,f)=>s+Number(f.amount_paid),0)
-    totDue+=due;totPaid+=paid
-    t1+=`<tr><td>${esc(st.name)}</td><td>${esc(plan)}</td><td>${Number(cfg?.fee_amount||0).toFixed(2)}</td><td>${due.toFixed(2)}</td><td>${paid.toFixed(2)}</td><td>${(due-paid).toFixed(2)}</td></tr>`
-  })
-  t1+=`<tr style="background:#EDE9FE;font-weight:bold"><td>TOTAL</td><td></td><td></td><td>${totDue.toFixed(2)}</td><td>${totPaid.toFixed(2)}</td><td>${(totDue-totPaid).toFixed(2)}</td></tr>`
+  // ── Hojas trimestrales ──
+  const buildTrimestre=(qIdx)=>{
+    const qMs=[0,1,2].map(i=>qIdx*3+i)// 0-indexed
+    const qLbl=qMs.map(i=>MN[i])
+    let rows=''
 
-  // ── Sección 2: Detalle mensual (misma hoja, separada por espacio) ──
-  let t2=`<tr><td></td></tr><tr><td></td></tr><tr>${['Alumno','Plan','Año','Mes','Cuota (€)','Pagado (€)','Pendiente (€)','Fecha pago','Notas'].map(h=>`<th style="background:#6D28D9;color:#fff;font-weight:bold">${h}</th>`).join('')}</tr>`
-  enrolled.forEach(st=>{
-    const cfg=configs.find(c=>c.stylist_id===st.id)
-    const plan=PLANS.find(p=>p.id===cfg?.plan)?.label||'Iniciación'
-    fees.filter(f=>f.stylist_id===st.id).sort((a,b)=>a.year!==b.year?a.year-b.year:a.month-b.month).forEach(f=>{
-      const pend=Number(f.amount_due)-Number(f.amount_paid)
-      t2+=`<tr><td>${esc(st.name)}</td><td>${esc(plan)}</td><td>${f.year}</td><td>${MS_FULL[f.month-1]}</td><td>${Number(f.amount_due).toFixed(2)}</td><td>${Number(f.amount_paid).toFixed(2)}</td><td>${pend.toFixed(2)}</td><td>${esc(f.paid_at||'')}</td><td>${esc(f.notes||'')}</td></tr>`
+    // Título
+    rows+=R(S(`Trimestre ${qIdx+1} — ${qLbl.join(' / ')} ${yr}`,'hdr'),...Array(5).fill(E()))
+    rows+=ER()
+
+    // Tabla 1: alumno × mes del trimestre
+    rows+=R(S('Alumno','hdr'),S('Plan','hdr'),...qLbl.map(m=>S(m,'hdr')),S('Facturado','hdr'),S('Pagado','hdr'),S('Pendiente','hdr'))
+    const colD=new Array(3).fill(0),colP=new Array(3).fill(0)
+    let qDue=0,qPaid=0
+    enrolled.forEach(st=>{
+      const cfg=configs.find(c=>c.stylist_id===st.id)
+      const plan=PLANS.find(p=>p.id===cfg?.plan)?.label||'Iniciación'
+      let sDue=0,sPaid=0
+      const mCells=qMs.map((mi,i)=>{
+        const f=getFee(st.id,mi+1)
+        if(!f)return S('—')
+        const isPaid=Number(f.amount_paid)>=Number(f.amount_due)&&Number(f.amount_due)>0
+        colD[i]+=Number(f.amount_due);colP[i]+=Number(f.amount_paid)
+        sDue+=Number(f.amount_due);sPaid+=Number(f.amount_paid)
+        return N(f.amount_due,isPaid?'paid':'debt')
+      })
+      qDue+=sDue;qPaid+=sPaid
+      const pend=sDue-sPaid
+      rows+=R(S(st.name),S(plan),...mCells,N(sDue),N(sPaid),N(pend,pend>0.01?'debt':'num'))
     })
-  })
+    rows+=R(S('TOTAL','tots'),S('','tots'),...colD.map((_,i)=>N(colD[i],'tot')),N(qDue,'tot'),N(qPaid,'tot'),N(qDue-qPaid,'tot'))
+    rows+=ER();rows+=ER()
 
-  const html=`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8"><style>td,th{border:1px solid #ccc;padding:5px 10px}table{border-collapse:collapse}</style></head><body><table>${t1}${t2}</table></body></html>`
+    // Tabla 2: Estado de cobro
+    rows+=R(S('Estado de cobro','hdr2'),S('Nº alumnos','hdr2'),S('Importe (€)','hdr2'))
+    const alDia=enrolled.filter(st=>qMs.every(mi=>{const f=getFee(st.id,mi+1);return!f||Number(f.amount_paid)>=Number(f.amount_due)}))
+    const conDeuda=enrolled.filter(st=>qMs.some(mi=>{const f=getFee(st.id,mi+1);return f&&Number(f.amount_paid)<Number(f.amount_due)}))
+    const sinAct=enrolled.filter(st=>qMs.every(mi=>!getFee(st.id,mi+1)))
+    const impDeuda=conDeuda.reduce((s,st)=>s+qMs.reduce((ss,mi)=>{const f=getFee(st.id,mi+1);return ss+(f?Math.max(0,Number(f.amount_due)-Number(f.amount_paid)):0)},0),0)
+    const impCobrado=enrolled.reduce((s,st)=>s+qMs.reduce((ss,mi)=>{const f=getFee(st.id,mi+1);return ss+(f?Number(f.amount_paid):0)},0),0)
+    rows+=R(S('✅ Al día / sin deuda'),N(alDia.length,'paid'),S('—','paid'))
+    rows+=R(S('⚠️ Con deuda pendiente'),N(conDeuda.length,'debt'),N(impDeuda,'debt'))
+    rows+=R(S('— Sin actividad este trimestre'),N(sinAct.length,'num'),S('—'))
+    rows+=R(S('💰 Total cobrado trimestre','lbl'),S('','lbl'),N(impCobrado,'num'))
+    rows+=ER();rows+=ER()
 
-  const blob=new Blob(['\uFEFF'+html],{type:'application/vnd.ms-excel;charset=utf-8'})
+    // Tabla 3: Detalle deuda por alumno
+    if(conDeuda.length>0){
+      rows+=R(S('Alumnos con deuda','hdr2'),S('Deuda (€)','hdr2'),S('Meses pendientes','hdr2'))
+      conDeuda.sort((a,b)=>{
+        const da=qMs.reduce((s,mi)=>{const f=getFee(a.id,mi+1);return s+(f?Math.max(0,Number(f.amount_due)-Number(f.amount_paid)):0)},0)
+        const db=qMs.reduce((s,mi)=>{const f=getFee(b.id,mi+1);return s+(f?Math.max(0,Number(f.amount_due)-Number(f.amount_paid)):0)},0)
+        return db-da
+      }).forEach(st=>{
+        const deuda=qMs.reduce((s,mi)=>{const f=getFee(st.id,mi+1);return s+(f?Math.max(0,Number(f.amount_due)-Number(f.amount_paid)):0)},0)
+        const mPend=qMs.filter(mi=>{const f=getFee(st.id,mi+1);return f&&Number(f.amount_paid)<Number(f.amount_due)}).map(mi=>MN[mi]).join(', ')
+        rows+=R(S(st.name,'debt'),N(deuda,'debt'),S(mPend,'debt'))
+      })
+    } else {
+      rows+=R(S('✅ Todos los alumnos al día este trimestre','paid'),S('','paid'),S('','paid'))
+    }
+
+    return rows
+  }
+
+  const xml=`<?xml version="1.0" encoding="UTF-8"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet" xmlns:html="http://www.w3.org/TR/REC-html40">${STYLES}<Worksheet ss:Name="Resumen Anual"><Table>${buildResumen()}</Table></Worksheet><Worksheet ss:Name="Q1 - Ene Feb Mar"><Table>${buildTrimestre(0)}</Table></Worksheet><Worksheet ss:Name="Q2 - Abr May Jun"><Table>${buildTrimestre(1)}</Table></Worksheet><Worksheet ss:Name="Q3 - Jul Ago Sep"><Table>${buildTrimestre(2)}</Table></Worksheet><Worksheet ss:Name="Q4 - Oct Nov Dic"><Table>${buildTrimestre(3)}</Table></Worksheet></Workbook>`
+
+  const blob=new Blob([xml],{type:'application/vnd.ms-excel;charset=utf-8'})
   const url=URL.createObjectURL(blob)
   const a=document.createElement('a')
-  a.href=url;a.download=`alumnos_${new Date().toISOString().slice(0,10)}.xls`
+  a.href=url;a.download=`alumnos_${yr}.xls`
   a.click();URL.revokeObjectURL(url)
 }
 
@@ -534,7 +635,7 @@ function FacturacionView({data,onAddExpense,onDelExpense}){
           <Stat label="Alumnos" value={enrolled.length} icon="🎓" color="var(--blue)" bg="var(--blue-bg)"/>
         </div>
         <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginBottom:14}}>
-          {enrolled.length>0&&<Btn variant="secondary" onClick={()=>exportStudentsXLSX(enrolled,configs,fees,stylists)}>⬇️ Exportar Excel</Btn>}
+          {enrolled.length>0&&<Btn variant="secondary" onClick={()=>exportStudentsXLSX(enrolled,configs,fees,thisY)}>⬇️ Exportar Excel</Btn>}
           {available.length>0&&<Btn onClick={()=>setAddStModal(true)}>+ Añadir alumno</Btn>}
         </div>
         {ldSt?<Sp/>:enrolled.length===0
