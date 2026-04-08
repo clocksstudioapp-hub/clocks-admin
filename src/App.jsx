@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { supabase } from './supabase'
+import * as XLSX from 'xlsx'
 
 // ═══ CSS ═══
 const CSS = `
@@ -397,6 +398,46 @@ function CalendarView({data,onCancel,onApptAdded}){
   </div>
 }
 
+const MS_FULL=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto','Septiembre','Octubre','Noviembre','Diciembre']
+
+const exportStudentsXLSX=(enrolled,configs,fees,stylists)=>{
+  const wb=XLSX.utils.book_new()
+
+  // ── Hoja 1: Resumen ──
+  const resumenRows=enrolled.map(st=>{
+    const cfg=configs.find(c=>c.stylist_id===st.id)
+    const plan=PLANS.find(p=>p.id===cfg?.plan)?.label||'Iniciación'
+    const stFees=fees.filter(f=>f.stylist_id===st.id)
+    const totalDue=stFees.reduce((s,f)=>s+Number(f.amount_due),0)
+    const totalPaid=stFees.reduce((s,f)=>s+Number(f.amount_paid),0)
+    const debt=totalDue-totalPaid
+    return{'Alumno':st.name,'Plan':plan,'Cuota/mes (€)':Number(cfg?.fee_amount||0),'Total facturado (€)':parseFloat(totalDue.toFixed(2)),'Total pagado (€)':parseFloat(totalPaid.toFixed(2)),'Deuda (€)':parseFloat(debt.toFixed(2))}
+  })
+  const totRow={'Alumno':'TOTAL','Plan':'','Cuota/mes (€)':'','Total facturado (€)':parseFloat(resumenRows.reduce((s,r)=>s+r['Total facturado (€)'],0).toFixed(2)),'Total pagado (€)':parseFloat(resumenRows.reduce((s,r)=>s+r['Total pagado (€)'],0).toFixed(2)),'Deuda (€)':parseFloat(resumenRows.reduce((s,r)=>s+r['Deuda (€)'],0).toFixed(2))}
+  const ws1=XLSX.utils.json_to_sheet([...resumenRows,totRow])
+  const colW=[{wch:22},{wch:18},{wch:14},{wch:20},{wch:18},{wch:12}]
+  ws1['!cols']=colW
+  XLSX.utils.book_append_sheet(wb,ws1,'Resumen')
+
+  // ── Hoja 2: Detalle mensual ──
+  const detalleRows=[]
+  enrolled.forEach(st=>{
+    const cfg=configs.find(c=>c.stylist_id===st.id)
+    const plan=PLANS.find(p=>p.id===cfg?.plan)?.label||'Iniciación'
+    fees.filter(f=>f.stylist_id===st.id).sort((a,b)=>a.year!==b.year?a.year-b.year:a.month-b.month).forEach(f=>{
+      detalleRows.push({'Alumno':st.name,'Plan':plan,'Año':f.year,'Mes':MS_FULL[f.month-1],'Cuota (€)':Number(f.amount_due),'Pagado (€)':Number(f.amount_paid),'Pendiente (€)':parseFloat((Number(f.amount_due)-Number(f.amount_paid)).toFixed(2)),'Fecha pago':f.paid_at||'—','Notas':f.notes||''})
+    })
+  })
+  if(detalleRows.length>0){
+    const ws2=XLSX.utils.json_to_sheet(detalleRows)
+    ws2['!cols']=[{wch:22},{wch:18},{wch:6},{wch:12},{wch:11},{wch:11},{wch:13},{wch:13},{wch:28}]
+    XLSX.utils.book_append_sheet(wb,ws2,'Detalle mensual')
+  }
+
+  const fecha=new Date().toISOString().slice(0,10)
+  XLSX.writeFile(wb,`alumnos_${fecha}.xlsx`)
+}
+
 // ═══ FACTURACIÓN ═══
 function FacturacionView({data,onAddExpense,onDelExpense}){
   const{appts,services,expenses,stylists}=data
@@ -488,7 +529,8 @@ function FacturacionView({data,onAddExpense,onDelExpense}){
           <Stat label="Deuda total" value={`${totalDebt.toFixed(0)}€`} icon="⚠️" color="var(--red)" bg="var(--red-bg)"/>
           <Stat label="Alumnos" value={enrolled.length} icon="🎓" color="var(--blue)" bg="var(--blue-bg)"/>
         </div>
-        <div style={{display:'flex',justifyContent:'flex-end',marginBottom:14}}>
+        <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginBottom:14}}>
+          {enrolled.length>0&&<Btn variant="secondary" onClick={()=>exportStudentsXLSX(enrolled,configs,fees,stylists)}>⬇️ Exportar Excel</Btn>}
           {available.length>0&&<Btn onClick={()=>setAddStModal(true)}>+ Añadir alumno</Btn>}
         </div>
         {ldSt?<Sp/>:enrolled.length===0
