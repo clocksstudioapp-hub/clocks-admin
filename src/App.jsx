@@ -401,13 +401,15 @@ const MS_FULL=['Enero','Febrero','Marzo','Abril','Mayo','Junio','Julio','Agosto'
 
 const exportStudentsXLSX=(enrolled,configs,fees)=>{
   const esc=v=>String(v??'').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
-  const num=v=>`<Cell ss:StyleID="n"><Data ss:Type="Number">${Number(v)||0}</Data></Cell>`
-  const str=v=>`<Cell><Data ss:Type="String">${esc(v)}</Data></Cell>`
-  const hdr=v=>`<Cell ss:StyleID="h"><Data ss:Type="String">${esc(v)}</Data></Cell>`
-  const tot=v=>`<Cell ss:StyleID="t"><Data ss:Type="Number">${Number(v)||0}</Data></Cell>`
+  const cell=(v,bold=false,bg='',num=false)=>{
+    let style=''
+    if(bold||bg)style=` style="${bold?'font-weight:bold;':''} ${bg?`background:${bg};color:${bg==='#6D28D9'?'#fff':'inherit'};`:''}"`
+    if(num)return`<td${style}>${Number(v)||0}</td>`
+    return`<td${style}>${esc(String(v??''))}</td>`
+  }
 
   // ── Hoja 1: Resumen ──
-  let rows1=`<Row>${[['Alumno'],['Plan'],['Cuota/mes (€)'],['Total facturado (€)'],['Total pagado (€)'],['Deuda (€)']].map(([h])=>hdr(h)).join('')}</Row>`
+  let t1=`<tr>${['Alumno','Plan','Cuota/mes (€)','Total facturado (€)','Total pagado (€)','Deuda (€)'].map(h=>`<th style="background:#6D28D9;color:#fff;font-weight:bold">${h}</th>`).join('')}</tr>`
   let totDue=0,totPaid=0
   enrolled.forEach(st=>{
     const cfg=configs.find(c=>c.stylist_id===st.id)
@@ -416,34 +418,24 @@ const exportStudentsXLSX=(enrolled,configs,fees)=>{
     const due=stFees.reduce((s,f)=>s+Number(f.amount_due),0)
     const paid=stFees.reduce((s,f)=>s+Number(f.amount_paid),0)
     totDue+=due;totPaid+=paid
-    rows1+=`<Row>${str(st.name)}${str(plan)}${num(cfg?.fee_amount||0)}${num(due.toFixed(2))}${num(paid.toFixed(2))}${num((due-paid).toFixed(2))}</Row>`
+    t1+=`<tr><td>${esc(st.name)}</td><td>${esc(plan)}</td><td>${Number(cfg?.fee_amount||0).toFixed(2)}</td><td>${due.toFixed(2)}</td><td>${paid.toFixed(2)}</td><td>${(due-paid).toFixed(2)}</td></tr>`
   })
-  rows1+=`<Row>${hdr('TOTAL')}${str('')}${str('')}${tot(totDue.toFixed(2))}${tot(totPaid.toFixed(2))}${tot((totDue-totPaid).toFixed(2))}</Row>`
+  t1+=`<tr style="background:#EDE9FE;font-weight:bold"><td>TOTAL</td><td></td><td></td><td>${totDue.toFixed(2)}</td><td>${totPaid.toFixed(2)}</td><td>${(totDue-totPaid).toFixed(2)}</td></tr>`
 
-  // ── Hoja 2: Detalle mensual ──
-  let rows2=`<Row>${['Alumno','Plan','Año','Mes','Cuota (€)','Pagado (€)','Pendiente (€)','Fecha pago','Notas'].map(h=>hdr(h)).join('')}</Row>`
+  // ── Sección 2: Detalle mensual (misma hoja, separada por espacio) ──
+  let t2=`<tr><td></td></tr><tr><td></td></tr><tr>${['Alumno','Plan','Año','Mes','Cuota (€)','Pagado (€)','Pendiente (€)','Fecha pago','Notas'].map(h=>`<th style="background:#6D28D9;color:#fff;font-weight:bold">${h}</th>`).join('')}</tr>`
   enrolled.forEach(st=>{
     const cfg=configs.find(c=>c.stylist_id===st.id)
     const plan=PLANS.find(p=>p.id===cfg?.plan)?.label||'Iniciación'
     fees.filter(f=>f.stylist_id===st.id).sort((a,b)=>a.year!==b.year?a.year-b.year:a.month-b.month).forEach(f=>{
       const pend=Number(f.amount_due)-Number(f.amount_paid)
-      rows2+=`<Row>${str(st.name)}${str(plan)}${num(f.year)}${str(MS_FULL[f.month-1])}${num(f.amount_due)}${num(f.amount_paid)}${num(pend.toFixed(2))}${str(f.paid_at||'')}${str(f.notes||'')}</Row>`
+      t2+=`<tr><td>${esc(st.name)}</td><td>${esc(plan)}</td><td>${f.year}</td><td>${MS_FULL[f.month-1]}</td><td>${Number(f.amount_due).toFixed(2)}</td><td>${Number(f.amount_paid).toFixed(2)}</td><td>${pend.toFixed(2)}</td><td>${esc(f.paid_at||'')}</td><td>${esc(f.notes||'')}</td></tr>`
     })
   })
 
-  const xml=`<?xml version="1.0" encoding="UTF-8"?>
-<?mso-application progid="Excel.Sheet"?>
-<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">
-<Styles>
-<Style ss:ID="h"><Font ss:Bold="1"/><Interior ss:Color="#6D28D9" ss:Pattern="Solid"/><Font ss:Bold="1" ss:Color="#FFFFFF"/></Style>
-<Style ss:ID="t"><Font ss:Bold="1"/><Interior ss:Color="#EDE9FE" ss:Pattern="Solid"/></Style>
-<Style ss:ID="n"><NumberFormat ss:Format="0.00"/></Style>
-</Styles>
-<Worksheet ss:Name="Resumen"><Table>${rows1}</Table></Worksheet>
-<Worksheet ss:Name="Detalle mensual"><Table>${rows2}</Table></Worksheet>
-</Workbook>`
+  const html=`<html xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel"><head><meta charset="UTF-8"><style>td,th{border:1px solid #ccc;padding:5px 10px}table{border-collapse:collapse}</style></head><body><table>${t1}${t2}</table></body></html>`
 
-  const blob=new Blob([xml],{type:'application/vnd.ms-excel;charset=utf-8'})
+  const blob=new Blob(['\uFEFF'+html],{type:'application/vnd.ms-excel;charset=utf-8'})
   const url=URL.createObjectURL(blob)
   const a=document.createElement('a')
   a.href=url;a.download=`alumnos_${new Date().toISOString().slice(0,10)}.xls`
