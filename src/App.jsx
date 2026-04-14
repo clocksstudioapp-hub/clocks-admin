@@ -82,7 +82,7 @@ function Stat({label,value,sub,icon,color='var(--purple)',bg='var(--purple-bg)'}
 // ═══ SIDEBAR ═══
 function Sidebar({active,onNav}){
   const[imgOk,setImgOk]=useState(true)
-  const items=[{id:'dash',label:'Dashboard',icon:'📊'},{id:'cal',label:'Calendario',icon:'📅'},{id:'finance',label:'Facturación',icon:'🧾'},{id:'barbers',label:'Barberos',icon:'📈'},{id:'clients',label:'Clientes',icon:'👥'},{id:'team',label:'Equipo',icon:'👤'},{id:'services',label:'Servicios',icon:'✂️'},{id:'blocks',label:'Bloqueos',icon:'🚫'}]
+  const items=[{id:'dash',label:'Dashboard',icon:'📊'},{id:'cal',label:'Calendario',icon:'📅'},{id:'finance',label:'Facturación',icon:'🧾'},{id:'barbers',label:'Barberos',icon:'📈'},{id:'clients',label:'Clientes',icon:'👥'},{id:'team',label:'Equipo',icon:'👤'},{id:'services',label:'Servicios',icon:'✂️'},{id:'blocks',label:'Bloqueos',icon:'🚫'},{id:'schedule',label:'Horario',icon:'🕐'}]
   return<div style={{width:'var(--sidebar-w)',background:'var(--white)',borderRight:'1.5px solid var(--border)',height:'100vh',position:'fixed',left:0,top:0,display:'flex',flexDirection:'column',zIndex:10,boxShadow:'2px 0 12px rgba(109,40,217,0.06)'}}>
     <div style={{padding:'18px 16px',borderBottom:'1.5px solid var(--border)'}}>
       <div style={{display:'flex',alignItems:'center',gap:10}}>
@@ -253,7 +253,7 @@ function TeamDropdown({stylists,selected,onChange}){
 }
 
 // ═══ CALENDAR VIEW ═══
-function CalendarView({data,onCancel,onApptAdded}){
+function CalendarView({data,onCancel,onApptAdded,salonSchedule=[]}){
   const{appts,profiles,stylists,services,blocks}=data
   const[anchor,setAnchor]=useState(new Date()) // anchor = first day shown
   const[selAppt,setSelAppt]=useState(null)
@@ -340,9 +340,16 @@ function CalendarView({data,onCancel,onApptAdded}){
             </div>
             {days.map(day=>{
               const key=toK(day)
+              const dow=day.getDay()===0?7:day.getDay() // Sun=0→7, but we use 1-6
+              const salSched=salonSchedule.find(s=>s.day_of_week===(day.getDay()===0?0:day.getDay()))
+              const breakY=salSched?.break_start?timeToY(salSched.break_start.slice(0,5)):null
+              const breakH=salSched?.break_start&&salSched?.break_end?timeToY(salSched.break_end.slice(0,5))-timeToY(salSched.break_start.slice(0,5)):null
               return<div key={key} style={{flex:1,borderRight:'1px solid var(--border)',display:'flex',position:'relative',height:timelineH}}>
                 {hourLabels.map((_,i)=><div key={i} style={{position:'absolute',top:i*SLOT_H*2,left:0,right:0,height:1,background:'var(--border)',zIndex:0}}/>)}
                 {hourLabels.map((_,i)=><div key={`h${i}`} style={{position:'absolute',top:i*SLOT_H*2+SLOT_H,left:0,right:0,height:1,background:'transparent',zIndex:0,borderTop:'1px dashed var(--border)'}}/>)}
+                {breakY!=null&&breakH!=null&&breakH>0&&<div style={{position:'absolute',top:breakY,height:breakH,left:0,right:0,background:'rgba(251,191,36,0.13)',borderTop:'1.5px dashed rgba(251,191,36,0.6)',borderBottom:'1.5px dashed rgba(251,191,36,0.6)',zIndex:1,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none'}}>
+                  <span style={{fontSize:10,fontWeight:700,color:'rgba(180,130,0,0.7)',letterSpacing:'0.04em'}}>☕ DESCANSO</span>
+                </div>}
                 {visibleStylists.map((s,si)=>{
                   const idx=activeSty.findIndex(x=>x.id===s.id)
                   const color=STY_COLORS[idx%STY_COLORS.length]
@@ -1002,20 +1009,104 @@ function BlocksView({data,onAdd,onDel}){
   </div>
 }
 
+// ═══ SALON SCHEDULE ═══
+const DAYS_ES=[{dow:1,label:'Lunes'},{dow:2,label:'Martes'},{dow:3,label:'Miércoles'},{dow:4,label:'Jueves'},{dow:5,label:'Viernes'},{dow:6,label:'Sábado'}]
+const TIME_OPTS=gS('07:00','22:30')
+
+function SalonScheduleView({schedule,onSaved}){
+  const[rows,setRows]=useState(()=>{
+    const base=DAYS_ES.map(({dow,label})=>{
+      const s=schedule.find(x=>x.day_of_week===dow)
+      return{dow,label,active:s?.active??true,open_time:s?.open_time?.slice(0,5)||'09:00',break_start:s?.break_start?.slice(0,5)||'',break_end:s?.break_end?.slice(0,5)||'',close_time:s?.close_time?.slice(0,5)||'20:00',hasBreak:!!(s?.break_start&&s?.break_end)}
+    })
+    return base
+  })
+  const[saving,setSaving]=useState(false),[msg,setMsg]=useState('')
+
+  const upd=(dow,field,val)=>setRows(r=>r.map(x=>x.dow===dow?{...x,[field]:val}:x))
+
+  const save=async()=>{
+    setSaving(true);setMsg('')
+    for(const r of rows){
+      const payload={day_of_week:r.dow,active:r.active,open_time:r.open_time,break_start:r.hasBreak&&r.break_start?r.break_start:null,break_end:r.hasBreak&&r.break_end?r.break_end:null,close_time:r.close_time,updated_at:new Date().toISOString()}
+      await supabase.from('salon_schedule').upsert(payload,{onConflict:'day_of_week'})
+    }
+    setSaving(false);setMsg('✅ Horario guardado')
+    onSaved()
+    setTimeout(()=>setMsg(''),3000)
+  }
+
+  return<div>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:22}}>
+      <div><h1 style={{fontSize:24,fontWeight:900}}>Horario del salón</h1><p style={{fontSize:13,color:'var(--text3)'}}>Configura el horario de apertura y el descanso de comida por día</p></div>
+      <div style={{display:'flex',alignItems:'center',gap:10}}>
+        {msg&&<span style={{fontSize:13,fontWeight:600,color:'var(--green)'}}>{msg}</span>}
+        <Btn onClick={save} disabled={saving}>{saving?'Guardando...':'Guardar cambios'}</Btn>
+      </div>
+    </div>
+
+    <div style={{display:'flex',flexDirection:'column',gap:10}}>
+      {rows.map(r=><div key={r.dow} style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',padding:'16px 20px',boxShadow:'var(--shadow)',opacity:r.active?1:0.55,transition:'opacity .2s'}}>
+        <div style={{display:'flex',alignItems:'center',gap:14,flexWrap:'wrap'}}>
+          {/* Toggle abierto/cerrado */}
+          <button onClick={()=>upd(r.dow,'active',!r.active)} style={{display:'flex',alignItems:'center',gap:7,background:'none',border:'none',cursor:'pointer',padding:0,flexShrink:0}}>
+            <div style={{width:36,height:20,borderRadius:10,background:r.active?'var(--purple)':'var(--border2)',transition:'background .2s',position:'relative',flexShrink:0}}>
+              <div style={{position:'absolute',top:3,left:r.active?18:3,width:14,height:14,borderRadius:7,background:'#fff',transition:'left .2s',boxShadow:'0 1px 3px rgba(0,0,0,0.2)'}}/>
+            </div>
+            <span style={{fontSize:14,fontWeight:700,minWidth:90,color:r.active?'var(--text)':'var(--text3)'}}>{r.label}</span>
+          </button>
+
+          {r.active&&<>
+            {/* Horario apertura–cierre */}
+            <div style={{display:'flex',alignItems:'center',gap:6,flexWrap:'wrap'}}>
+              <select value={r.open_time} onChange={e=>upd(r.dow,'open_time',e.target.value)} style={{padding:'6px 28px 6px 10px',fontSize:13,border:'1.5px solid var(--border2)',borderRadius:8,background:'var(--white)',color:'var(--text)',fontFamily:'inherit',backgroundImage:"url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239B8FBF' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E\")",backgroundRepeat:'no-repeat',backgroundPosition:'right 8px center',cursor:'pointer'}}>
+                {TIME_OPTS.map(h=><option key={h} value={h}>{h}</option>)}
+              </select>
+              <span style={{fontSize:12,color:'var(--text3)',fontWeight:600}}>→</span>
+              <select value={r.close_time} onChange={e=>upd(r.dow,'close_time',e.target.value)} style={{padding:'6px 28px 6px 10px',fontSize:13,border:'1.5px solid var(--border2)',borderRadius:8,background:'var(--white)',color:'var(--text)',fontFamily:'inherit',backgroundImage:"url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239B8FBF' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E\")",backgroundRepeat:'no-repeat',backgroundPosition:'right 8px center',cursor:'pointer'}}>
+                {TIME_OPTS.map(h=><option key={h} value={h}>{h}</option>)}
+              </select>
+            </div>
+
+            {/* Break toggle */}
+            <button onClick={()=>upd(r.dow,'hasBreak',!r.hasBreak)} style={{display:'flex',alignItems:'center',gap:5,padding:'5px 11px',borderRadius:7,border:`1.5px solid ${r.hasBreak?'var(--orange)':'var(--border2)'}`,background:r.hasBreak?'var(--orange-bg)':'var(--white)',cursor:'pointer',fontSize:12,fontWeight:700,color:r.hasBreak?'var(--orange)':'var(--text3)',fontFamily:'inherit',transition:'all .15s'}}>
+              ☕ {r.hasBreak?'Break':'+ Break'}
+            </button>
+
+            {r.hasBreak&&<div style={{display:'flex',alignItems:'center',gap:6}}>
+              <select value={r.break_start} onChange={e=>upd(r.dow,'break_start',e.target.value)} style={{padding:'6px 28px 6px 10px',fontSize:13,border:'1.5px solid var(--border2)',borderRadius:8,background:'var(--white)',color:'var(--text)',fontFamily:'inherit',backgroundImage:"url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239B8FBF' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E\")",backgroundRepeat:'no-repeat',backgroundPosition:'right 8px center',cursor:'pointer'}}>
+                {TIME_OPTS.map(h=><option key={h} value={h}>{h}</option>)}
+              </select>
+              <span style={{fontSize:12,color:'var(--text3)',fontWeight:600}}>→</span>
+              <select value={r.break_end} onChange={e=>upd(r.dow,'break_end',e.target.value)} style={{padding:'6px 28px 6px 10px',fontSize:13,border:'1.5px solid var(--border2)',borderRadius:8,background:'var(--white)',color:'var(--text)',fontFamily:'inherit',backgroundImage:"url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239B8FBF' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E\")",backgroundRepeat:'no-repeat',backgroundPosition:'right 8px center',cursor:'pointer'}}>
+                {TIME_OPTS.map(h=><option key={h} value={h}>{h}</option>)}
+              </select>
+            </div>}
+          </>}
+
+          {!r.active&&<span style={{fontSize:13,color:'var(--text3)',fontWeight:500}}>Cerrado</span>}
+        </div>
+      </div>)}
+    </div>
+  </div>
+}
+
 // ═══ MAIN ═══
 export default function App(){
   const[user,setUser]=useState(null),[profile,setProfile]=useState(null),[view,setView]=useState('loading'),[page,setPage]=useState('dash')
   const[appts,setAppts]=useState([]),[profiles,setProfiles]=useState({}),[stylists,setStylists]=useState([]),[services,setServices]=useState([]),[blocks,setBlocks]=useState([]),[expenses,setExpenses]=useState([])
+  const[salonSchedule,setSalonSchedule]=useState([])
 
   const loadAll=useCallback(async()=>{
-    const[{data:a},{data:st},{data:sv},{data:bl},{data:ex}]=await Promise.all([
+    const[{data:a},{data:st},{data:sv},{data:bl},{data:ex},{data:ss}]=await Promise.all([
       supabase.from('appointments').select('*').order('appointment_date',{ascending:false}).limit(1000),
       supabase.from('stylists').select('*').order('display_order'),
       supabase.from('services').select('*').order('display_order'),
       supabase.from('blocked_slots').select('*,stylists(name)').order('blocked_date',{ascending:false}),
       supabase.from('expenses').select('*').order('expense_date',{ascending:false}).limit(500),
+      supabase.from('salon_schedule').select('*').order('day_of_week'),
     ])
-    setAppts(a||[]);setStylists(st||[]);setServices(sv||[]);setBlocks(bl||[]);setExpenses(ex||[])
+    setAppts(a||[]);setStylists(st||[]);setServices(sv||[]);setBlocks(bl||[]);setExpenses(ex||[]);setSalonSchedule(ss||[])
     const ids=[...new Set((a||[]).map(x=>x.user_id).filter(Boolean))]
     if(ids.length>0){const{data:p}=await supabase.from('profiles').select('id,full_name,phone').in('id',ids);const m={};(p||[]).forEach(pr=>{m[pr.id]=pr});setProfiles(m)}
   },[])
@@ -1050,13 +1141,14 @@ export default function App(){
     <Sidebar active={page} onNav={setPage}/>
     <main style={{flex:1,marginLeft:'var(--sidebar-w)',padding:'24px 28px',maxWidth:'calc(100vw - var(--sidebar-w))'}}>
       {page==='dash'&&<Dashboard data={D}/>}
-      {page==='cal'&&<CalendarView data={D} onCancel={cancelAppt} onApptAdded={loadAll}/>}
+      {page==='cal'&&<CalendarView data={D} onCancel={cancelAppt} onApptAdded={loadAll} salonSchedule={salonSchedule}/>}
       {page==='finance'&&<FacturacionView data={D} onAddExpense={addExpense} onDelExpense={delExpense}/>}
       {page==='barbers'&&<BarberStats data={D}/>}
       {page==='clients'&&<ClientsView data={D}/>}
       {page==='team'&&<TeamView data={D} onSave={saveSty} onDel={delSty}/>}
       {page==='services'&&<ServicesView data={D} onSave={saveSvc} onDel={delSvc}/>}
       {page==='blocks'&&<BlocksView data={D} onAdd={addBlock} onDel={rmBlock}/>}
+      {page==='schedule'&&<SalonScheduleView schedule={salonSchedule} onSaved={loadAll}/>}
     </main>
   </div>
 }
