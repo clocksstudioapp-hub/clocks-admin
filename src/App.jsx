@@ -80,9 +80,11 @@ function Modal({children,onClose}){return<div onClick={onClose} style={{position
 function Stat({label,value,sub,icon,color='var(--purple)',bg='var(--purple-bg)'}){return<div className="fade" style={{background:'var(--white)',borderRadius:14,padding:'18px 20px',border:'1.5px solid var(--border)',boxShadow:'var(--shadow)',flex:1,minWidth:160}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}><div style={{fontSize:11,fontWeight:600,color:'var(--text3)',textTransform:'uppercase',letterSpacing:'0.05em'}}>{label}</div><div style={{width:34,height:34,borderRadius:9,background:bg,display:'flex',alignItems:'center',justifyContent:'center',fontSize:17}}>{icon}</div></div><div style={{fontSize:27,fontWeight:900,lineHeight:1,color:'var(--text)'}}>{value}</div>{sub&&<div style={{fontSize:11,color:'var(--text3)',marginTop:6}}>{sub}</div>}</div>}
 
 // ═══ SIDEBAR ═══
-function Sidebar({active,onNav}){
+function Sidebar({active,onNav,isMainAdmin,stylistName}){
   const[imgOk,setImgOk]=useState(true)
-  const items=[{id:'dash',label:'Dashboard',icon:'📊'},{id:'cal',label:'Calendario',icon:'📅'},{id:'finance',label:'Facturación',icon:'🧾'},{id:'barbers',label:'Barberos',icon:'📈'},{id:'clients',label:'Clientes',icon:'👥'},{id:'team',label:'Equipo',icon:'👤'},{id:'services',label:'Servicios',icon:'✂️'},{id:'blocks',label:'Bloqueos',icon:'🚫'},{id:'schedule',label:'Horario',icon:'🕐'}]
+  const adminItems=[{id:'dash',label:'Dashboard',icon:'📊'},{id:'cal',label:'Calendario',icon:'📅'},{id:'finance',label:'Facturación',icon:'🧾'},{id:'barbers',label:'Barberos',icon:'📈'},{id:'clients',label:'Clientes',icon:'👥'},{id:'team',label:'Equipo',icon:'👤'},{id:'services',label:'Servicios',icon:'✂️'},{id:'blocks',label:'Bloqueos',icon:'🚫'},{id:'schedule',label:'Horario salón',icon:'🕐'}]
+  const barberItems=[{id:'cal',label:'Mi calendario',icon:'📅'},{id:'schedule',label:'Mi horario',icon:'🕐'},{id:'blocks',label:'Mis bloqueos',icon:'🚫'}]
+  const items=isMainAdmin?adminItems:barberItems
   return<div style={{width:'var(--sidebar-w)',background:'var(--white)',borderRight:'1.5px solid var(--border)',height:'100vh',position:'fixed',left:0,top:0,display:'flex',flexDirection:'column',zIndex:10,boxShadow:'2px 0 12px rgba(109,40,217,0.06)'}}>
     <div style={{padding:'18px 16px',borderBottom:'1.5px solid var(--border)'}}>
       <div style={{display:'flex',alignItems:'center',gap:10}}>
@@ -91,7 +93,10 @@ function Sidebar({active,onNav}){
             ?<img src="/images/icono-logo.png" alt="Logo" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={()=>setImgOk(false)}/>
             :<span style={{fontSize:16,fontWeight:900,color:'#fff'}}>C</span>}
         </div>
-        <div><div style={{fontSize:14,fontWeight:800,color:'var(--text)'}}>Clocks Admin</div><div style={{fontSize:10,color:'var(--text3)',fontWeight:500}}>Panel PRO</div></div>
+        <div>
+          <div style={{fontSize:14,fontWeight:800,color:'var(--text)'}}>{isMainAdmin?'Clocks Admin':stylistName||'Mi Panel'}</div>
+          <div style={{fontSize:10,color:'var(--text3)',fontWeight:500}}>{isMainAdmin?'Panel PRO':'Barbero'}</div>
+        </div>
       </div>
     </div>
     <nav style={{flex:1,padding:'8px 8px',overflowY:'auto'}}>
@@ -253,7 +258,7 @@ function TeamDropdown({stylists,selected,onChange}){
 }
 
 // ═══ CALENDAR VIEW ═══
-function CalendarView({data,onCancel,onApptAdded,salonSchedule=[]}){
+function CalendarView({data,onCancel,onApptAdded,salonSchedule=[],lockedStylistId=null}){
   const{appts,profiles,stylists,services,blocks}=data
   const[anchor,setAnchor]=useState(new Date()) // anchor = first day shown
   const[selAppt,setSelAppt]=useState(null)
@@ -263,7 +268,9 @@ function CalendarView({data,onCancel,onApptAdded,salonSchedule=[]}){
   const alvaroSty=activeSty.find(s=>normName(s.name).includes('alvaro'))||activeSty[0]
   const[selectedIds,setSelectedIds]=useState(()=>activeSty.map(s=>s.id))
   const[alvaroMode,setAlvaroMode]=useState(false)
-  const visibleStylists=alvaroMode?activeSty.filter(s=>s.id===alvaroSty?.id):activeSty.filter(s=>selectedIds.includes(s.id))
+  const visibleStylists=lockedStylistId
+    ?activeSty.filter(s=>s.id===lockedStylistId)
+    :(alvaroMode?activeSty.filter(s=>s.id===alvaroSty?.id):activeSty.filter(s=>selectedIds.includes(s.id)))
   const numDays=daysForCount(visibleStylists.length)
   const isSingleBarber=visibleStylists.length<=1
 
@@ -293,8 +300,8 @@ function CalendarView({data,onCancel,onApptAdded,salonSchedule=[]}){
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexShrink:0,flexWrap:'wrap',gap:8}}>
       <div><h1 style={{fontSize:24,fontWeight:900}}>Calendario</h1><p style={{fontSize:13,color:'var(--text3)'}}>{isSingleBarber?'Vista semanal':'Vista diaria'} · {numDays} día{numDays!==1?'s':''}</p></div>
       <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-        <TeamDropdown stylists={activeSty} selected={selectedIds} onChange={ids=>{setSelectedIds(ids);setAlvaroMode(false)}}/>
-        {alvaroSty&&<button onClick={()=>setAlvaroMode(m=>!m)} style={{display:'flex',alignItems:'center',gap:6,padding:'8px 14px',fontSize:13,fontWeight:700,fontFamily:'inherit',background:alvaroMode?'var(--purple-grad)':'var(--white)',border:'1.5px solid var(--border2)',borderRadius:9,cursor:'pointer',color:alvaroMode?'#fff':'var(--text)',boxShadow:alvaroMode?'0 2px 8px rgba(109,40,217,0.3)':'var(--shadow)',transition:'all .2s'}}>
+        {!lockedStylistId&&<TeamDropdown stylists={activeSty} selected={selectedIds} onChange={ids=>{setSelectedIds(ids);setAlvaroMode(false)}}/>}
+        {!lockedStylistId&&alvaroSty&&<button onClick={()=>setAlvaroMode(m=>!m)} style={{display:'flex',alignItems:'center',gap:6,padding:'8px 14px',fontSize:13,fontWeight:700,fontFamily:'inherit',background:alvaroMode?'var(--purple-grad)':'var(--white)',border:'1.5px solid var(--border2)',borderRadius:9,cursor:'pointer',color:alvaroMode?'#fff':'var(--text)',boxShadow:alvaroMode?'0 2px 8px rgba(109,40,217,0.3)':'var(--shadow)',transition:'all .2s'}}>
           👑 {alvaroSty.name}
         </button>}
         <Btn small onClick={()=>setAddM({date:toK(days[0]),stylistId:visibleStylists[0]?.id})}>+ Cita manual</Btn>
@@ -906,53 +913,115 @@ function BarberStats({data}){
 
 // ═══ CLIENTS ═══
 function ClientsView({data}){
-  const{appts,profiles,services}=data
+  const{appts,allProfiles,services,stylists}=data
   const[search,setSearch]=useState('')
-  const clientMap={}
-  appts.forEach(a=>{if(!a.user_id)return;if(!clientMap[a.user_id])clientMap[a.user_id]={v:0,r:0,c:0,last:null};if(a.status==='confirmed'||a.status==='completed'){clientMap[a.user_id].v++;const sv=services.find(x=>x.id===a.service_id);clientMap[a.user_id].r+=sv?Number(sv.price):0;if(!clientMap[a.user_id].last||a.appointment_date>clientMap[a.user_id].last)clientMap[a.user_id].last=a.appointment_date}if(a.status==='cancelled')clientMap[a.user_id].c++})
-  let clients=Object.entries(clientMap).map(([id,d])=>({id,...d,p:profiles[id]})).filter(c=>c.p)
-  if(search)clients=clients.filter(c=>c.p?.full_name?.toLowerCase().includes(search.toLowerCase())||c.p?.phone?.includes(search))
-  clients.sort((a,b)=>b.r-a.r)
-  const handleExport=()=>{const rows=clients.map(c=>({Nombre:c.p?.full_name||'—',Telefono:c.p?.phone||'—',Visitas:c.v,Ingresos:c.r.toFixed(2),Cancelaciones:c.c,Ultima_visita:c.last||'—'}));if(rows.length>0)exportCSV(rows,'clientes')}
+  // Stats por usuario
+  const statsMap={}
+  appts.forEach(a=>{if(!a.user_id)return;if(!statsMap[a.user_id])statsMap[a.user_id]={v:0,r:0,c:0,last:null};if(a.status==='confirmed'||a.status==='completed'){statsMap[a.user_id].v++;const sv=services.find(x=>x.id===a.service_id);statsMap[a.user_id].r+=sv?Number(sv.price):0;if(!statsMap[a.user_id].last||a.appointment_date>statsMap[a.user_id].last)statsMap[a.user_id].last=a.appointment_date}if(a.status==='cancelled')statsMap[a.user_id].c++})
+  const ROLE_BADGE={admin:{l:'Admin',c:'var(--purple)',bg:'var(--purple-bg)'},barber:{l:'Barbero',c:'var(--orange)',bg:'var(--orange-bg)'}}
+  let clients=(allProfiles||[]).map(p=>({...p,...(statsMap[p.id]||{v:0,r:0,c:0,last:null})}))
+  if(search)clients=clients.filter(c=>c.full_name?.toLowerCase().includes(search.toLowerCase())||c.phone?.includes(search))
+  clients.sort((a,b)=>b.r-a.r||(a.full_name||'').localeCompare(b.full_name||''))
+  const handleExport=()=>{const rows=clients.map(c=>({Nombre:c.full_name||'—',Telefono:c.phone||'—',Rol:c.role||'user',Visitas:c.v,Ingresos:c.r.toFixed(2),Cancelaciones:c.c,Ultima_visita:c.last||'—'}));if(rows.length>0)exportCSV(rows,'clientes')}
   return<div>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
       <div><h1 style={{fontSize:24,fontWeight:900}}>Clientes</h1><p style={{fontSize:14,color:'var(--text3)'}}>{clients.length} registrados</p></div>
       <div style={{display:'flex',gap:8}}>
-        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar..." style={{padding:'8px 14px',fontSize:13,border:'1.5px solid var(--border2)',borderRadius:9,background:'var(--white)',fontFamily:'inherit',width:220}}/>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar nombre o teléfono..." style={{padding:'8px 14px',fontSize:13,border:'1.5px solid var(--border2)',borderRadius:9,background:'var(--white)',fontFamily:'inherit',width:240}}/>
         <Btn small variant="secondary" onClick={handleExport}>📥 Exportar CSV</Btn>
       </div>
     </div>
     <div style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',boxShadow:'var(--shadow)',overflow:'hidden'}}>
-      <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 80px 100px 80px 100px',padding:'10px 20px',borderBottom:'1.5px solid var(--border)',background:'var(--bg)'}}>
-        {['Cliente','Teléfono','Visitas','Ingresos','Canc.','Última'].map(h=><div key={h} style={{fontSize:11,fontWeight:700,color:'var(--text3)',textTransform:'uppercase',letterSpacing:'0.05em'}}>{h}</div>)}
+      <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 90px 80px 100px 80px 100px',padding:'10px 20px',borderBottom:'1.5px solid var(--border)',background:'var(--bg)'}}>
+        {['Cliente','Teléfono','Rol','Visitas','Ingresos','Canc.','Última'].map(h=><div key={h} style={{fontSize:11,fontWeight:700,color:'var(--text3)',textTransform:'uppercase',letterSpacing:'0.05em'}}>{h}</div>)}
       </div>
-      {clients.length===0?<div style={{padding:30,textAlign:'center',color:'var(--text3)'}}>No hay clientes</div>:
-      clients.map(c=><div key={c.id} style={{display:'grid',gridTemplateColumns:'2fr 1fr 80px 100px 80px 100px',padding:'12px 20px',borderBottom:'1px solid var(--border)',alignItems:'center'}}>
-        <div style={{fontSize:14,fontWeight:500}}>{c.p?.full_name}</div>
-        <div style={{fontSize:13,color:'var(--text2)'}}>{c.p?.phone||'—'}</div>
-        <div style={{fontSize:14,fontWeight:600}}>{c.v}</div>
-        <div style={{fontSize:14,fontWeight:700,color:'var(--purple)'}}>{c.r.toFixed(0)}€</div>
-        <div style={{fontSize:13,color:c.c>0?'var(--red)':'var(--text3)'}}>{c.c}</div>
-        <div style={{fontSize:12,color:'var(--text3)'}}>{c.last?fS(new Date(c.last+'T12:00')):'—'}</div>
-      </div>)}
+      {clients.length===0?<div style={{padding:30,textAlign:'center',color:'var(--text3)'}}>No hay perfiles registrados</div>:
+      clients.map(c=>{
+        const rb=ROLE_BADGE[c.role]
+        const linkedSty=c.role==='barber'?stylists.find(s=>s.id===c.stylist_id):null
+        return<div key={c.id} style={{display:'grid',gridTemplateColumns:'2fr 1fr 90px 80px 100px 80px 100px',padding:'12px 20px',borderBottom:'1px solid var(--border)',alignItems:'center'}}>
+          <div>
+            <div style={{fontSize:14,fontWeight:500}}>{c.full_name||'Sin nombre'}</div>
+            {linkedSty&&<div style={{fontSize:11,color:'var(--orange)',fontWeight:600}}>✂️ {linkedSty.name}</div>}
+          </div>
+          <div style={{fontSize:13,color:'var(--text2)'}}>{c.phone||'—'}</div>
+          <div>{rb?<span style={{fontSize:11,fontWeight:700,color:rb.c,background:rb.bg,padding:'2px 8px',borderRadius:6}}>{rb.l}</span>:<span style={{fontSize:11,color:'var(--text3)'}}>Cliente</span>}</div>
+          <div style={{fontSize:14,fontWeight:600}}>{c.v}</div>
+          <div style={{fontSize:14,fontWeight:700,color:'var(--purple)'}}>{c.r.toFixed(0)}€</div>
+          <div style={{fontSize:13,color:c.c>0?'var(--red)':'var(--text3)'}}>{c.c}</div>
+          <div style={{fontSize:12,color:'var(--text3)'}}>{c.last?fS(new Date(c.last+'T12:00')):'—'}</div>
+        </div>
+      })}
     </div>
   </div>
 }
 
 // ═══ TEAM CRUD ═══
-function TeamView({data,onSave,onDel}){
-  const[edit,setEdit]=useState(null),[del,setDel]=useState(null)
+function TeamView({data,onSave,onDel,onLink,onUnlink}){
+  const[edit,setEdit]=useState(null),[del,setDel]=useState(null),[linkFor,setLinkFor]=useState(null),[search,setSearch]=useState('')
+  const{allProfiles=[],stylists}=data
+
+  // Para cada barbero, encontrar su perfil vinculado
+  const linkedProfile=s=>allProfiles.find(p=>p.stylist_id===s.id&&p.role==='barber')
+
+  // Profiles disponibles para vincular: no son barbers ya vinculados a otro barbero, no son admin
+  const availableProfiles=allProfiles.filter(p=>p.role!=='admin'&&(p.role!=='barber'||p.stylist_id===linkFor?.id))
+  const filtered=search?availableProfiles.filter(p=>p.full_name?.toLowerCase().includes(search.toLowerCase())||p.phone?.includes(search)):availableProfiles
+
   return<div>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}><h1 style={{fontSize:24,fontWeight:900}}>Equipo</h1><Btn onClick={()=>setEdit({name:'',username:'',role_title:'Barbero',photo_url:'',active:true})}>+ Añadir</Btn></div>
-    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:14}}>
-      {data.stylists.map(s=><div key={s.id} className="fade" style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',padding:18,boxShadow:'var(--shadow)',opacity:s.active?1:0.5}}>
-        <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:14}}>
-          <div style={{width:48,height:48,borderRadius:12,background:'var(--purple-bg)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,color:'var(--purple)',overflow:'hidden',flexShrink:0}}>{s.photo_url?<img src={s.photo_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>:s.name[0]}</div>
-          <div><div style={{fontSize:15,fontWeight:700}}>{s.name}</div><div style={{fontSize:12,color:'var(--text3)'}}>{s.role_title} · {s.username||'—'}</div></div>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:14}}>
+      {stylists.map(s=>{
+        const linked=linkedProfile(s)
+        return<div key={s.id} className="fade" style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',padding:18,boxShadow:'var(--shadow)',opacity:s.active?1:0.5}}>
+          <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:14}}>
+            <div style={{width:48,height:48,borderRadius:12,background:'var(--purple-bg)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,color:'var(--purple)',overflow:'hidden',flexShrink:0}}>{s.photo_url?<img src={s.photo_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>:s.name[0]}</div>
+            <div><div style={{fontSize:15,fontWeight:700}}>{s.name}</div><div style={{fontSize:12,color:'var(--text3)'}}>{s.role_title} · {s.username||'—'}</div></div>
+          </div>
+
+          {/* Cuenta vinculada */}
+          <div style={{marginBottom:12,padding:'10px 12px',borderRadius:10,background:linked?'var(--green-bg)':'var(--bg)',border:`1.5px solid ${linked?'rgba(22,163,74,0.2)':'var(--border)'}`,display:'flex',alignItems:'center',gap:10}}>
+            {linked?<>
+              <div style={{width:28,height:28,borderRadius:14,background:'var(--green)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:700,color:'#fff',flexShrink:0}}>{linked.full_name?.[0]?.toUpperCase()||'?'}</div>
+              <div style={{flex:1,minWidth:0}}>
+                <div style={{fontSize:13,fontWeight:700,color:'var(--green)'}}>{linked.full_name||'Sin nombre'}</div>
+                <div style={{fontSize:11,color:'var(--text3)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{linked.phone||'Sin teléfono'}</div>
+              </div>
+              <button onClick={()=>onUnlink(linked.id)} style={{fontSize:11,fontWeight:700,color:'var(--red)',background:'var(--red-bg)',border:'1px solid rgba(220,38,38,0.18)',borderRadius:7,padding:'4px 9px',cursor:'pointer',fontFamily:'inherit',flexShrink:0}}>Desvincular</button>
+            </>:<>
+              <div style={{width:28,height:28,borderRadius:14,background:'var(--border)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,color:'var(--text3)',flexShrink:0}}>?</div>
+              <span style={{flex:1,fontSize:12,color:'var(--text3)'}}>Sin cuenta vinculada</span>
+              <button onClick={()=>{setLinkFor(s);setSearch('')}} style={{fontSize:11,fontWeight:700,color:'var(--purple)',background:'var(--purple-bg)',border:'1px solid rgba(109,40,217,0.15)',borderRadius:7,padding:'4px 9px',cursor:'pointer',fontFamily:'inherit',flexShrink:0}}>Vincular</button>
+            </>}
+          </div>
+
+          <div style={{display:'flex',gap:6}}><Btn small variant="secondary" onClick={()=>setEdit(s)} style={{flex:1}}>Editar</Btn><Btn small variant="danger" onClick={()=>setDel(s)}>✕</Btn></div>
         </div>
-        <div style={{display:'flex',gap:6}}><Btn small variant="secondary" onClick={()=>setEdit(s)} style={{flex:1}}>Editar</Btn><Btn small variant="danger" onClick={()=>setDel(s)}>✕</Btn></div>
-      </div>)}
+      })}
     </div>
+
+    {/* Modal vincular cuenta */}
+    {linkFor&&<Modal onClose={()=>setLinkFor(null)}>
+      <h3 style={{fontSize:18,fontWeight:900,marginBottom:4}}>Vincular cuenta a {linkFor.name}</h3>
+      <p style={{fontSize:13,color:'var(--text3)',marginBottom:14}}>Selecciona el perfil de cliente que pertenece a este barbero. Su rol cambiará a Barbero automáticamente.</p>
+      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por nombre o teléfono..." autoFocus style={{width:'100%',padding:'9px 13px',fontSize:13,border:'1.5px solid var(--border2)',borderRadius:9,fontFamily:'inherit',marginBottom:12}}/>
+      <div style={{maxHeight:320,overflowY:'auto',display:'flex',flexDirection:'column',gap:6}}>
+        {filtered.length===0&&<div style={{padding:20,textAlign:'center',color:'var(--text3)',fontSize:13}}>Sin resultados</div>}
+        {filtered.map(p=>{
+          const isLinkedHere=p.stylist_id===linkFor.id
+          return<button key={p.id} onClick={()=>{onLink(linkFor.id,p.id);setLinkFor(null)}} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',borderRadius:10,border:`1.5px solid ${isLinkedHere?'var(--green)':'var(--border)'}`,background:isLinkedHere?'var(--green-bg)':'var(--white)',cursor:'pointer',textAlign:'left',fontFamily:'inherit',transition:'all .15s'}}>
+            <div style={{width:34,height:34,borderRadius:17,background:'var(--purple-bg)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:700,color:'var(--purple)',flexShrink:0}}>{p.full_name?.[0]?.toUpperCase()||'?'}</div>
+            <div style={{flex:1,minWidth:0}}>
+              <div style={{fontSize:14,fontWeight:600,color:'var(--text)'}}>{p.full_name||'Sin nombre'}</div>
+              <div style={{fontSize:12,color:'var(--text3)'}}>{p.phone||'Sin teléfono'}{p.role==='barber'?<span style={{marginLeft:6,fontSize:11,color:'var(--orange)',fontWeight:600}}>• ya barbero</span>:null}</div>
+            </div>
+            {isLinkedHere&&<span style={{fontSize:11,fontWeight:700,color:'var(--green)'}}>✓ actual</span>}
+          </button>
+        })}
+      </div>
+      <Btn variant="secondary" full onClick={()=>setLinkFor(null)} style={{marginTop:14}}>Cancelar</Btn>
+    </Modal>}
+
     {edit&&<StyModal d={edit} onSave={x=>{onSave(x);setEdit(null)}} onClose={()=>setEdit(null)}/>}
     {del&&<Modal onClose={()=>setDel(null)}><h3 style={{fontSize:18,fontWeight:900,marginBottom:12}}>¿Eliminar a {del.name}?</h3><div style={{display:'flex',gap:10,marginTop:16}}><Btn variant="secondary" onClick={()=>setDel(null)} style={{flex:1}}>Cancelar</Btn><Btn variant="danger" onClick={()=>{onDel(del.id);setDel(null)}} style={{flex:1}}>Eliminar</Btn></div></Modal>}
   </div>
@@ -985,11 +1054,14 @@ function SvcModal({d,onSave,onClose}){
 }
 
 // ═══ BLOCKS ═══
-function BlocksView({data,onAdd,onDel}){
-  const[show,setShow]=useState(false),[bS,setBS]=useState(data.stylists[0]?.id),[bD,setBD]=useState(toK(new Date())),[bSt,setBSt]=useState('09:00'),[bE,setBE]=useState('10:00'),[bR,setBR]=useState('')
-  const upcoming=data.blocks.filter(b=>b.blocked_date>=toK(new Date())).sort((a,b)=>a.blocked_date.localeCompare(b.blocked_date))
+function BlocksView({data,onAdd,onDel,lockedStylistId=null}){
+  const defaultSty=lockedStylistId||data.stylists[0]?.id
+  const[show,setShow]=useState(false),[bS,setBS]=useState(defaultSty),[bD,setBD]=useState(toK(new Date())),[bSt,setBSt]=useState('09:00'),[bE,setBE]=useState('10:00'),[bR,setBR]=useState('')
+  const upcoming=data.blocks
+    .filter(b=>b.blocked_date>=toK(new Date())&&(lockedStylistId?b.stylist_id===lockedStylistId:true))
+    .sort((a,b)=>a.blocked_date.localeCompare(b.blocked_date))
   return<div>
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}><h1 style={{fontSize:24,fontWeight:900}}>Bloqueos</h1><Btn onClick={()=>setShow(true)}>+ Bloquear horario</Btn></div>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}><h1 style={{fontSize:24,fontWeight:900}}>{lockedStylistId?'Mis bloqueos':'Bloqueos'}</h1><Btn onClick={()=>setShow(true)}>+ Bloquear horario</Btn></div>
     <div style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',boxShadow:'var(--shadow)',overflow:'hidden'}}>
       {upcoming.length===0?<div style={{padding:30,textAlign:'center',color:'var(--text3)'}}>No hay bloqueos activos</div>:
       upcoming.map((b,i)=><div key={b.id} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 20px',borderBottom:i<upcoming.length-1?'1px solid var(--border)':'none'}}>
@@ -1000,12 +1072,77 @@ function BlocksView({data,onAdd,onDel}){
     </div>
     {show&&<Modal onClose={()=>setShow(false)}>
       <h3 style={{fontSize:18,fontWeight:900,marginBottom:16}}>Bloquear horario</h3>
-      <Sel label="Profesional" value={bS} onChange={e=>setBS(Number(e.target.value))}>{data.stylists.filter(s=>s.active).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</Sel>
+      {lockedStylistId
+        ?<div style={{marginBottom:13,padding:'9px 12px',background:'var(--purple-bg)',borderRadius:9,fontSize:13,fontWeight:600,color:'var(--purple)'}}>{data.stylists.find(s=>s.id===lockedStylistId)?.name}</div>
+        :<Sel label="Profesional" value={bS} onChange={e=>setBS(Number(e.target.value))}>{data.stylists.filter(s=>s.active).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</Sel>}
       <Inp label="Fecha" type="date" value={bD} onChange={e=>setBD(e.target.value)}/>
       <div style={{display:'flex',gap:8}}><div style={{flex:1}}><Sel label="Desde" value={bSt} onChange={e=>setBSt(e.target.value)}>{gS().map(h=><option key={h} value={h}>{h}</option>)}</Sel></div><div style={{flex:1}}><Sel label="Hasta" value={bE} onChange={e=>setBE(e.target.value)}>{gS('09:30','20:30').map(h=><option key={h} value={h}>{h}</option>)}</Sel></div></div>
       <Inp label="Motivo" value={bR} onChange={e=>setBR(e.target.value)} placeholder="Ej: Descanso..."/>
       <div style={{display:'flex',gap:8}}><Btn variant="secondary" onClick={()=>setShow(false)} style={{flex:1}}>Cancelar</Btn><Btn onClick={()=>{onAdd({stylist_id:bS,blocked_date:bD,start_time:bSt,end_time:bE,reason:bR||'Bloqueado'});setShow(false);setBR('')}} style={{flex:1}}>Bloquear</Btn></div>
     </Modal>}
+  </div>
+}
+
+// ═══ MY SCHEDULE (barbero) ═══
+function MyScheduleView({stylistId,onSaved}){
+  const[rows,setRows]=useState([]),[saving,setSaving]=useState(false),[msg,setMsg]=useState(''),[loaded,setLoaded]=useState(false)
+
+  useEffect(()=>{
+    if(!stylistId)return
+    supabase.from('stylist_schedules').select('*').eq('stylist_id',stylistId).then(({data})=>{
+      const d=data||[]
+      setRows(DAYS_ES.map(({dow,label})=>{
+        const s=d.find(x=>x.day_of_week===dow)
+        return{dow,label,active:s?.active??true,start_time:s?.start_time?.slice(0,5)||'09:00',end_time:s?.end_time?.slice(0,5)||'20:00'}
+      }))
+      setLoaded(true)
+    })
+  },[stylistId])
+
+  const upd=(dow,field,val)=>setRows(r=>r.map(x=>x.dow===dow?{...x,[field]:val}:x))
+
+  const save=async()=>{
+    if(!stylistId)return
+    setSaving(true);setMsg('')
+    for(const r of rows){
+      await supabase.from('stylist_schedules').upsert({stylist_id:stylistId,day_of_week:r.dow,active:r.active,start_time:r.start_time,end_time:r.end_time},{onConflict:'stylist_id,day_of_week'})
+    }
+    setSaving(false);setMsg('✅ Horario guardado')
+    onSaved()
+    setTimeout(()=>setMsg(''),3000)
+  }
+
+  if(!loaded)return<Sp/>
+  return<div>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:22}}>
+      <div><h1 style={{fontSize:24,fontWeight:900}}>Mi horario</h1><p style={{fontSize:13,color:'var(--text3)'}}>Configura los días y horas en que estás disponible</p></div>
+      <div style={{display:'flex',alignItems:'center',gap:10}}>
+        {msg&&<span style={{fontSize:13,fontWeight:600,color:'var(--green)'}}>{msg}</span>}
+        <Btn onClick={save} disabled={saving}>{saving?'Guardando...':'Guardar cambios'}</Btn>
+      </div>
+    </div>
+    <div style={{display:'flex',flexDirection:'column',gap:10}}>
+      {rows.map(r=><div key={r.dow} style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',padding:'16px 20px',boxShadow:'var(--shadow)',opacity:r.active?1:0.55,transition:'opacity .2s'}}>
+        <div style={{display:'flex',alignItems:'center',gap:14,flexWrap:'wrap'}}>
+          <button onClick={()=>upd(r.dow,'active',!r.active)} style={{display:'flex',alignItems:'center',gap:7,background:'none',border:'none',cursor:'pointer',padding:0,flexShrink:0}}>
+            <div style={{width:36,height:20,borderRadius:10,background:r.active?'var(--purple)':'var(--border2)',transition:'background .2s',position:'relative',flexShrink:0}}>
+              <div style={{position:'absolute',top:3,left:r.active?18:3,width:14,height:14,borderRadius:7,background:'#fff',transition:'left .2s',boxShadow:'0 1px 3px rgba(0,0,0,0.2)'}}/>
+            </div>
+            <span style={{fontSize:14,fontWeight:700,minWidth:90,color:r.active?'var(--text)':'var(--text3)'}}>{r.label}</span>
+          </button>
+          {r.active&&<div style={{display:'flex',alignItems:'center',gap:6}}>
+            <select value={r.start_time} onChange={e=>upd(r.dow,'start_time',e.target.value)} style={{padding:'6px 28px 6px 10px',fontSize:13,border:'1.5px solid var(--border2)',borderRadius:8,background:'var(--white)',color:'var(--text)',fontFamily:'inherit',backgroundImage:"url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239B8FBF' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E\")",backgroundRepeat:'no-repeat',backgroundPosition:'right 8px center',cursor:'pointer'}}>
+              {TIME_OPTS.map(h=><option key={h} value={h}>{h}</option>)}
+            </select>
+            <span style={{fontSize:12,color:'var(--text3)',fontWeight:600}}>→</span>
+            <select value={r.end_time} onChange={e=>upd(r.dow,'end_time',e.target.value)} style={{padding:'6px 28px 6px 10px',fontSize:13,border:'1.5px solid var(--border2)',borderRadius:8,background:'var(--white)',color:'var(--text)',fontFamily:'inherit',backgroundImage:"url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239B8FBF' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E\")",backgroundRepeat:'no-repeat',backgroundPosition:'right 8px center',cursor:'pointer'}}>
+              {TIME_OPTS.map(h=><option key={h} value={h}>{h}</option>)}
+            </select>
+          </div>}
+          {!r.active&&<span style={{fontSize:13,color:'var(--text3)',fontWeight:500}}>No disponible</span>}
+        </div>
+      </div>)}
+    </div>
   </div>
 }
 
@@ -1096,30 +1233,35 @@ export default function App(){
   const[user,setUser]=useState(null),[profile,setProfile]=useState(null),[view,setView]=useState('loading'),[page,setPage]=useState('dash')
   const[appts,setAppts]=useState([]),[profiles,setProfiles]=useState({}),[stylists,setStylists]=useState([]),[services,setServices]=useState([]),[blocks,setBlocks]=useState([]),[expenses,setExpenses]=useState([])
   const[salonSchedule,setSalonSchedule]=useState([])
+  const[allProfiles,setAllProfiles]=useState([])
 
   const loadAll=useCallback(async()=>{
-    const[{data:a},{data:st},{data:sv},{data:bl},{data:ex},{data:ss}]=await Promise.all([
+    const[{data:a},{data:st},{data:sv},{data:bl},{data:ex},{data:ss},{data:allP}]=await Promise.all([
       supabase.from('appointments').select('*').order('appointment_date',{ascending:false}).limit(1000),
       supabase.from('stylists').select('*').order('display_order'),
       supabase.from('services').select('*').order('display_order'),
       supabase.from('blocked_slots').select('*,stylists(name)').order('blocked_date',{ascending:false}),
       supabase.from('expenses').select('*').order('expense_date',{ascending:false}).limit(500),
       supabase.from('salon_schedule').select('*').order('day_of_week'),
+      supabase.from('profiles').select('id,full_name,phone,role,stylist_id').order('full_name'),
     ])
     setAppts(a||[]);setStylists(st||[]);setServices(sv||[]);setBlocks(bl||[]);setExpenses(ex||[]);setSalonSchedule(ss||[])
-    const ids=[...new Set((a||[]).map(x=>x.user_id).filter(Boolean))]
-    if(ids.length>0){const{data:p}=await supabase.from('profiles').select('id,full_name,phone').in('id',ids);const m={};(p||[]).forEach(pr=>{m[pr.id]=pr});setProfiles(m)}
+    const arr=allP||[]
+    setAllProfiles(arr)
+    const m={};arr.forEach(pr=>{m[pr.id]=pr});setProfiles(m)
   },[])
+
+  const checkRole=r=>r==='admin'||r==='barber'
 
   useEffect(()=>{
     supabase.auth.getSession().then(async({data:{session}})=>{
-      if(session?.user){setUser(session.user);const{data:prof}=await supabase.from('profiles').select('*').eq('id',session.user.id).single();if(prof?.role!=='admin'){setView('denied');return}setProfile(prof);setView('app');loadAll()}else{setView('auth')}
+      if(session?.user){setUser(session.user);const{data:prof}=await supabase.from('profiles').select('*').eq('id',session.user.id).single();if(!checkRole(prof?.role)){setView('denied');return}setProfile(prof);setView('app');loadAll()}else{setView('auth')}
     })
     const{data:{subscription}}=supabase.auth.onAuthStateChange((_e,s)=>{if(!s?.user){setUser(null);setProfile(null);setView('auth')}})
     return()=>subscription.unsubscribe()
   },[loadAll])
 
-  const handleLogin=async u=>{setUser(u);const{data:prof}=await supabase.from('profiles').select('*').eq('id',u.id).single();if(prof?.role!=='admin'){setView('denied');return}setProfile(prof);setView('app');loadAll()}
+  const handleLogin=async u=>{setUser(u);const{data:prof}=await supabase.from('profiles').select('*').eq('id',u.id).single();if(!checkRole(prof?.role)){setView('denied');return}setProfile(prof);setView('app');loadAll()}
   const cancelAppt=async id=>{await supabase.from('appointments').update({status:'cancelled',cancelled_by:'admin'}).eq('id',id);loadAll()}
   const addBlock=async d=>{await supabase.from('blocked_slots').insert({...d,created_by:user.id});loadAll()}
   const rmBlock=async id=>{await supabase.from('blocked_slots').delete().eq('id',id);loadAll()}
@@ -1129,26 +1271,34 @@ export default function App(){
   const delSty=async id=>{await supabase.from('stylists').delete().eq('id',id);loadAll()}
   const addExpense=async d=>{await supabase.from('expenses').insert({...d,created_by:user.id});loadAll()}
   const delExpense=async id=>{await supabase.from('expenses').delete().eq('id',id);loadAll()}
+  const linkProfile=async(stylistId,profileId)=>{await supabase.from('profiles').update({role:'barber',stylist_id:stylistId}).eq('id',profileId);loadAll()}
+  const unlinkProfile=async(profileId)=>{await supabase.from('profiles').update({role:'user',stylist_id:null}).eq('id',profileId);loadAll()}
 
-  const D={appts,profiles,stylists,services,blocks,expenses}
+  const D={appts,profiles,stylists,services,blocks,expenses,allProfiles}
+  const isMainAdmin=profile?.role==='admin'
+  const myStyId=profile?.stylist_id||null
+  const myStyName=stylists.find(s=>s.id===myStyId)?.name||null
 
   if(view==='loading')return<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center'}}><style>{CSS}</style><Sp/></div>
   if(view==='auth')return<><style>{CSS}</style><AdminAuth onLogin={handleLogin}/></>
-  if(view==='denied')return<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:16}}><style>{CSS}</style><h2>⛔ Acceso denegado</h2><p style={{color:'var(--text3)'}}>Solo administradores.</p><Btn onClick={async()=>{await supabase.auth.signOut();setView('auth')}}>Cerrar sesión</Btn></div>
+  if(view==='denied')return<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',flexDirection:'column',gap:16}}><style>{CSS}</style><h2>⛔ Acceso denegado</h2><p style={{color:'var(--text3)'}}>Tu cuenta no tiene permisos de acceso.</p><Btn onClick={async()=>{await supabase.auth.signOut();setView('auth')}}>Cerrar sesión</Btn></div>
 
   return<div style={{display:'flex',minHeight:'100vh'}}>
     <style>{CSS}</style>
-    <Sidebar active={page} onNav={setPage}/>
+    <Sidebar active={page} onNav={setPage} isMainAdmin={isMainAdmin} stylistName={myStyName}/>
     <main style={{flex:1,marginLeft:'var(--sidebar-w)',padding:'24px 28px',maxWidth:'calc(100vw - var(--sidebar-w))'}}>
-      {page==='dash'&&<Dashboard data={D}/>}
-      {page==='cal'&&<CalendarView data={D} onCancel={cancelAppt} onApptAdded={loadAll} salonSchedule={salonSchedule}/>}
-      {page==='finance'&&<FacturacionView data={D} onAddExpense={addExpense} onDelExpense={delExpense}/>}
-      {page==='barbers'&&<BarberStats data={D}/>}
-      {page==='clients'&&<ClientsView data={D}/>}
-      {page==='team'&&<TeamView data={D} onSave={saveSty} onDel={delSty}/>}
-      {page==='services'&&<ServicesView data={D} onSave={saveSvc} onDel={delSvc}/>}
-      {page==='blocks'&&<BlocksView data={D} onAdd={addBlock} onDel={rmBlock}/>}
-      {page==='schedule'&&<SalonScheduleView schedule={salonSchedule} onSaved={loadAll}/>}
+      {page==='dash'&&isMainAdmin&&<Dashboard data={D}/>}
+      {page==='cal'&&<CalendarView data={D} onCancel={cancelAppt} onApptAdded={loadAll} salonSchedule={salonSchedule} lockedStylistId={isMainAdmin?null:myStyId}/>}
+      {page==='finance'&&isMainAdmin&&<FacturacionView data={D} onAddExpense={addExpense} onDelExpense={delExpense}/>}
+      {page==='barbers'&&isMainAdmin&&<BarberStats data={D}/>}
+      {page==='clients'&&isMainAdmin&&<ClientsView data={D}/>}
+      {page==='team'&&isMainAdmin&&<TeamView data={D} onSave={saveSty} onDel={delSty} onLink={linkProfile} onUnlink={unlinkProfile}/>}
+      {page==='services'&&isMainAdmin&&<ServicesView data={D} onSave={saveSvc} onDel={delSvc}/>}
+      {page==='blocks'&&<BlocksView data={D} onAdd={addBlock} onDel={rmBlock} lockedStylistId={isMainAdmin?null:myStyId}/>}
+      {page==='schedule'&&(isMainAdmin
+        ?<SalonScheduleView schedule={salonSchedule} onSaved={loadAll}/>
+        :<MyScheduleView stylistId={myStyId} onSaved={loadAll}/>
+      )}
     </main>
   </div>
 }
