@@ -131,13 +131,16 @@ function AdminAuth({onLogin}){
 
 // ═══ DASHBOARD ═══
 function Dashboard({data}){
-  const{appts,profiles,stylists,services,expenses}=data
+  const{appts,profiles,stylists,services,expenses,dashFees=[]}=data
   const today=toK(new Date()),thisMonth=today.slice(0,7)
+  const thisY=new Date().getFullYear(),thisM=new Date().getMonth()+1
   const mAppts=appts.filter(a=>a.appointment_date.slice(0,7)===thisMonth)
   const mConf=mAppts.filter(a=>a.status==='confirmed'||a.status==='completed')
   const mCanc=mAppts.filter(a=>a.status==='cancelled').length
   const todayA=appts.filter(a=>a.appointment_date===today&&a.status==='confirmed')
-  const revenue=mConf.reduce((s,a)=>{const sv=services.find(x=>x.id===a.service_id);return s+(sv?Number(sv.price):0)},0)
+  const apptRevenue=mConf.reduce((s,a)=>{const sv=services.find(x=>x.id===a.service_id);return s+(sv?Number(sv.price):0)},0)
+  const feeRevenue=dashFees.filter(f=>f.year===thisY&&f.month===thisM).reduce((s,f)=>s+Number(f.amount_paid||0),0)
+  const revenue=apptRevenue+feeRevenue
   const mExp=expenses.filter(e=>e.expense_date?.slice(0,7)===thisMonth).reduce((s,e)=>s+Number(e.amount),0)
   const profit=revenue-mExp
   const clients=new Set(mConf.map(a=>a.user_id).filter(Boolean)).size
@@ -149,7 +152,7 @@ function Dashboard({data}){
     <div style={{marginBottom:24}}><h1 style={{fontSize:24,fontWeight:900}}>Dashboard</h1><p style={{fontSize:14,color:'var(--text3)'}}>{MO[new Date().getMonth()]} {new Date().getFullYear()}</p></div>
     <div style={{display:'flex',gap:14,marginBottom:20,flexWrap:'wrap'}}>
       <Stat label="Citas hoy" value={todayA.length} icon="📅" sub={`${mConf.length} este mes`}/>
-      <Stat label="Ingresos" value={`${revenue.toFixed(0)}€`} icon="💰" color="var(--green)" bg="var(--green-bg)"/>
+      <Stat label="Ingresos" value={`${revenue.toFixed(0)}€`} icon="💰" color="var(--green)" bg="var(--green-bg)" sub={feeRevenue>0?`Citas: ${apptRevenue.toFixed(0)}€ · Cuotas: ${feeRevenue.toFixed(0)}€`:undefined}/>
       <Stat label="Gastos" value={`${mExp.toFixed(0)}€`} icon="📉" color="var(--red)" bg="var(--red-bg)"/>
       <Stat label="Beneficio" value={`${profit.toFixed(0)}€`} icon={profit>=0?"📈":"📉"} color={profit>=0?"var(--green)":"var(--red)"} bg={profit>=0?"var(--green-bg)":"var(--red-bg)"}/>
       <Stat label="Clientes" value={clients} icon="👥" color="var(--blue)" bg="var(--blue-bg)"/>
@@ -1236,9 +1239,10 @@ export default function App(){
   const[appts,setAppts]=useState([]),[profiles,setProfiles]=useState({}),[stylists,setStylists]=useState([]),[services,setServices]=useState([]),[blocks,setBlocks]=useState([]),[expenses,setExpenses]=useState([])
   const[salonSchedule,setSalonSchedule]=useState([])
   const[allProfiles,setAllProfiles]=useState([])
+  const[dashFees,setDashFees]=useState([])
 
   const loadAll=useCallback(async()=>{
-    const[{data:a},{data:st},{data:sv},{data:bl},{data:ex},{data:ss},{data:allP}]=await Promise.all([
+    const[{data:a},{data:st},{data:sv},{data:bl},{data:ex},{data:ss},{data:allP},{data:sf}]=await Promise.all([
       supabase.from('appointments').select('*').order('appointment_date',{ascending:false}).limit(1000),
       supabase.from('stylists').select('*').order('display_order'),
       supabase.from('services').select('*').order('display_order'),
@@ -1246,8 +1250,9 @@ export default function App(){
       supabase.from('expenses').select('*').order('expense_date',{ascending:false}).limit(500),
       supabase.from('salon_schedule').select('*').order('day_of_week'),
       supabase.from('profiles').select('id,full_name,phone,role,stylist_id').order('full_name'),
+      supabase.from('student_fees').select('stylist_id,year,month,amount_paid,amount_due'),
     ])
-    setAppts(a||[]);setStylists(st||[]);setServices(sv||[]);setBlocks(bl||[]);setExpenses(ex||[]);setSalonSchedule(ss||[])
+    setAppts(a||[]);setStylists(st||[]);setServices(sv||[]);setBlocks(bl||[]);setExpenses(ex||[]);setSalonSchedule(ss||[]);setDashFees(sf||[])
     const arr=allP||[]
     setAllProfiles(arr)
     const m={};arr.forEach(pr=>{m[pr.id]=pr});setProfiles(m)
@@ -1276,7 +1281,7 @@ export default function App(){
   const linkProfile=async(stylistId,profileId)=>{await supabase.from('profiles').update({role:'barber',stylist_id:stylistId}).eq('id',profileId);loadAll()}
   const unlinkProfile=async(profileId)=>{await supabase.from('profiles').update({role:'user',stylist_id:null}).eq('id',profileId);loadAll()}
 
-  const D={appts,profiles,stylists,services,blocks,expenses,allProfiles}
+  const D={appts,profiles,stylists,services,blocks,expenses,allProfiles,dashFees}
   const isMainAdmin=profile?.role==='admin'
   const myStyId=profile?.stylist_id||null
   const myStyName=stylists.find(s=>s.id===myStyId)?.name||null
