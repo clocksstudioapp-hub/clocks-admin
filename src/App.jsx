@@ -178,13 +178,13 @@ function Dashboard({data}){
 }
 
 // ═══ ADD APPOINTMENT MODAL ═══
-function AddApptModal({data,defaultDate,defaultStylistId,onSave,onClose}){
+function AddApptModal({data,defaultDate,defaultStylistId,defaultTime,onSave,onClose}){
   const{stylists,services}=data
   const[clientName,setClientName]=useState('')
   const[styId,setStyId]=useState(String(defaultStylistId||stylists[0]?.id||''))
   const[svcId,setSvcId]=useState(String(services[0]?.id||''))
   const[date,setDate]=useState(defaultDate||toK(new Date()))
-  const[time,setTime]=useState('09:00')
+  const[time,setTime]=useState(defaultTime||'09:00')
   const[note,setNote]=useState('')
   const[saving,setSaving]=useState(false)
   const svc=services.find(s=>s.id===Number(svcId))
@@ -228,6 +228,41 @@ function AddApptModal({data,defaultDate,defaultStylistId,onSave,onClose}){
   </Modal>
 }
 
+// ═══ BLOCK ON DRAG MODAL ═══
+function BlockOnDragModal({data,sel,onSave,onClose}){
+  const sty=data.stylists.find(s=>s.id===sel.stylistId)
+  const[st,setSt]=useState(sel.startTime)
+  const[en,setEn]=useState(sel.endTime)
+  const[reason,setReason]=useState('')
+  const[saving,setSaving]=useState(false)
+  const[err,setErr]=useState('')
+  const valid=st<en
+  const save=async()=>{
+    if(!valid)return
+    setSaving(true);setErr('')
+    try{
+      await onSave({stylist_id:sel.stylistId,blocked_date:sel.date,start_time:st,end_time:en,reason:reason||'Bloqueado'})
+      onClose();return
+    }catch(e){setErr(e?.message||'Error al bloquear')}
+    setSaving(false)
+  }
+  return<Modal onClose={onClose}>
+    <h3 style={{fontSize:19,fontWeight:900,marginBottom:6}}>🚫 Bloquear horario</h3>
+    <div style={{fontSize:13,color:'var(--text2)',marginBottom:16,fontWeight:500}}>{sty?.name} · {fDF(parseDate(sel.date))}</div>
+    <div style={{display:'flex',gap:8}}>
+      <div style={{flex:1}}><Sel label="Desde" value={st} onChange={e=>setSt(e.target.value)}>{gS('00:00','24:00',15).map(h=><option key={h} value={h}>{h}</option>)}</Sel></div>
+      <div style={{flex:1}}><Sel label="Hasta" value={en} onChange={e=>setEn(e.target.value)}>{gS('00:15','24:00',15).map(h=><option key={h} value={h}>{h}</option>)}</Sel></div>
+    </div>
+    <Inp label="Motivo (opcional)" value={reason} onChange={e=>setReason(e.target.value)} placeholder="Ej: comida, formación, médico..."/>
+    {!valid&&<div style={{padding:'9px 12px',background:'var(--red-bg)',borderRadius:8,marginBottom:10,fontSize:12,color:'var(--red)',fontWeight:600,border:'1px solid rgba(220,38,38,0.18)'}}>⚠️ La hora final debe ser posterior a la inicial</div>}
+    {err&&<div style={{padding:'9px 12px',background:'var(--red-bg)',borderRadius:8,marginBottom:10,fontSize:12,color:'var(--red)',fontWeight:600,border:'1px solid rgba(220,38,38,0.18)'}}>⚠️ {err}</div>}
+    <div style={{display:'flex',gap:8,marginTop:4}}>
+      <Btn variant="secondary" onClick={onClose} style={{flex:1}}>Cancelar</Btn>
+      <Btn onClick={save} disabled={saving||!valid} style={{flex:1}}>{saving?'Bloqueando...':'Bloquear'}</Btn>
+    </div>
+  </Modal>
+}
+
 // ═══ TEAM DROPDOWN ═══
 function TeamDropdown({stylists,selected,onChange}){
   const[open,setOpen]=useState(false)
@@ -261,12 +296,14 @@ function TeamDropdown({stylists,selected,onChange}){
 }
 
 // ═══ CALENDAR VIEW ═══
-function CalendarView({data,onCancel,onApptAdded,salonSchedule=[],lockedStylistId=null}){
+function CalendarView({data,onCancel,onApptAdded,onAddBlock,salonSchedule=[],lockedStylistId=null}){
   const{appts,profiles,stylists,services,blocks}=data
   const[anchor,setAnchor]=useState(new Date()) // anchor = first day shown
   const[selAppt,setSelAppt]=useState(null)
   const[cancelM,setCancelM]=useState(null)
   const[addM,setAddM]=useState(null)
+  const[blockM,setBlockM]=useState(null)
+  const[dragInfo,setDragInfo]=useState(null)
   const activeSty=stylists.filter(s=>s.active)
   const alvaroSty=activeSty.find(s=>normName(s.name).includes('alvaro'))||activeSty[0]
   const[selectedIds,setSelectedIds]=useState(()=>activeSty.map(s=>s.id))
@@ -293,11 +330,44 @@ function CalendarView({data,onCancel,onApptAdded,salonSchedule=[],lockedStylistI
   const TOTAL_SLOTS=(END_H-START_H)*2
   const timelineH=TOTAL_SLOTS*SLOT_H
   const timeToY=t=>{const[h,m]=t.split(':').map(Number);return((h*60+m-START_H*60)/30)*SLOT_H}
+  const yToTime=y=>{
+    const totalMinFromStart=Math.max(0,Math.min((y/SLOT_H)*30,(END_H-START_H)*60))
+    const snapped=Math.round(totalMinFromStart/15)*15
+    const total=START_H*60+snapped
+    return`${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`
+  }
+  const DRAG_PX=8
   const durToH=min=>(min/30)*SLOT_H
   const getAppts=(dateKey,styId)=>appts.filter(a=>a.appointment_date===dateKey&&a.stylist_id===styId&&a.status==='confirmed')
   const getBlocks=(dateKey,styId)=>blocks.filter(b=>b.blocked_date===dateKey&&b.stylist_id===styId)
   const hourLabels=[]
   for(let h=START_H;h<=END_H;h++)hourLabels.push(`${String(h).padStart(2,'0')}:00`)
+
+  useEffect(()=>{
+    if(!dragInfo)return
+    const onMove=e=>{
+      const y=e.clientY-dragInfo.rect.top
+      setDragInfo(d=>d?{...d,currentY:Math.max(0,Math.min(y,timelineH))}:null)
+    }
+    const onUp=()=>{
+      setDragInfo(d=>{
+        if(!d)return null
+        const dragged=Math.abs(d.currentY-d.startY)>DRAG_PX
+        if(dragged){
+          const y1=Math.min(d.startY,d.currentY)
+          const y2=Math.max(d.startY,d.currentY)
+          const stT=yToTime(y1),enT=yToTime(y2)
+          if(stT!==enT)setBlockM({date:d.dayKey,stylistId:d.stylistId,startTime:stT,endTime:enT})
+        }else{
+          setAddM({date:d.dayKey,stylistId:d.stylistId,time:yToTime(d.startY)})
+        }
+        return null
+      })
+    }
+    document.addEventListener('mousemove',onMove)
+    document.addEventListener('mouseup',onUp)
+    return()=>{document.removeEventListener('mousemove',onMove);document.removeEventListener('mouseup',onUp)}
+  },[dragInfo?.dayKey,dragInfo?.stylistId,dragInfo?.startY,dragInfo?.rect,timelineH])
 
   return<div style={{display:'flex',flexDirection:'column',height:'calc(100vh - 48px)'}}>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexShrink:0,flexWrap:'wrap',gap:8}}>
@@ -367,9 +437,26 @@ function CalendarView({data,onCancel,onApptAdded,salonSchedule=[],lockedStylistI
                   const dayBlocks=getBlocks(key,s.id)
                   const colW=`${100/visibleStylists.length}%`
                   const colL=`${(si/visibleStylists.length)*100}%`
+                  const isDragHere=dragInfo&&dragInfo.dayKey===key&&dragInfo.stylistId===s.id
+                  const dragY1=isDragHere?Math.min(dragInfo.startY,dragInfo.currentY):0
+                  const dragY2=isDragHere?Math.max(dragInfo.startY,dragInfo.currentY):0
+                  const dragShown=isDragHere&&Math.abs(dragInfo.currentY-dragInfo.startY)>DRAG_PX
                   return<div key={s.id} style={{position:'absolute',left:colL,width:colW,top:0,bottom:0,borderRight:si<visibleStylists.length-1?'1px solid var(--border)':'none'}}>
-                    <div onClick={()=>setAddM({date:key,stylistId:s.id})} style={{position:'absolute',inset:0,cursor:'pointer',zIndex:1}} title={`+ cita para ${s.name}`}/>
-                    {dayBlocks.map(b=>{const y=timeToY(b.start_time);const h=timeToY(b.end_time)-y;return<div key={b.id} style={{position:'absolute',top:y,height:Math.max(h,4),left:2,right:2,background:'rgba(220,38,38,0.1)',border:'1px solid rgba(220,38,38,0.25)',borderRadius:5,zIndex:2,display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden'}}><span style={{fontSize:9,fontWeight:600,color:'var(--red)',textAlign:'center',padding:'0 2px'}}>{b.reason||'Bloqueado'}</span></div>})}
+                    <div
+                      onMouseDown={e=>{
+                        if(e.button!==0)return
+                        const r=e.currentTarget.getBoundingClientRect()
+                        const y=e.clientY-r.top
+                        setDragInfo({dayKey:key,stylistId:s.id,startY:y,currentY:y,rect:r})
+                        e.preventDefault()
+                      }}
+                      style={{position:'absolute',inset:0,cursor:'crosshair',zIndex:1,userSelect:'none'}}
+                      title={`Click: + cita · Arrastra: bloquear horario`}
+                    />
+                    {dragShown&&<div style={{position:'absolute',top:dragY1,height:dragY2-dragY1,left:2,right:2,background:'rgba(220,38,38,0.18)',border:'1.5px dashed red',borderRadius:6,zIndex:5,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none'}}>
+                      <span style={{fontSize:11,fontWeight:700,color:'red'}}>{yToTime(dragY1)} – {yToTime(dragY2)}</span>
+                    </div>}
+                    {dayBlocks.map(b=>{const y=timeToY(b.start_time);const h=timeToY(b.end_time)-y;return<div key={b.id} onMouseDown={e=>e.stopPropagation()} style={{position:'absolute',top:y,height:Math.max(h,4),left:2,right:2,background:'rgba(220,38,38,0.1)',border:'1px solid rgba(220,38,38,0.25)',borderRadius:5,zIndex:2,display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden'}}><span style={{fontSize:9,fontWeight:600,color:'var(--red)',textAlign:'center',padding:'0 2px'}}>{b.reason||'Bloqueado'}</span></div>})}
                     {dayAppts.map(a=>{
                       const sv=services.find(x=>x.id===a.service_id)
                       const pr=profiles[a.user_id]
@@ -377,7 +464,7 @@ function CalendarView({data,onCancel,onApptAdded,salonSchedule=[],lockedStylistI
                       const y=timeToY(a.appointment_time)
                       const actualDur=(()=>{if(a.end_time&&a.appointment_time){const[sh,sm]=a.appointment_time.slice(0,5).split(':').map(Number);const[eh,em]=a.end_time.slice(0,5).split(':').map(Number);return(eh*60+em)-(sh*60+sm)}return sv?.duration||30})()
                       const h=durToH(actualDur)
-                      return<div key={a.id} onClick={e=>{e.stopPropagation();setSelAppt(a)}} style={{position:'absolute',top:y+1,height:Math.max(h-2,20),left:2,right:2,background:color,borderRadius:6,zIndex:3,cursor:'pointer',padding:'3px 5px',overflow:'hidden',boxShadow:`0 1px 4px ${color}55`,transition:'opacity .15s'}} onMouseEnter={e=>e.currentTarget.style.opacity='.85'} onMouseLeave={e=>e.currentTarget.style.opacity='1'}>
+                      return<div key={a.id} onMouseDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();setSelAppt(a)}} style={{position:'absolute',top:y+1,height:Math.max(h-2,20),left:2,right:2,background:color,borderRadius:6,zIndex:3,cursor:'pointer',padding:'3px 5px',overflow:'hidden',boxShadow:`0 1px 4px ${color}55`,transition:'opacity .15s'}} onMouseEnter={e=>e.currentTarget.style.opacity='.85'} onMouseLeave={e=>e.currentTarget.style.opacity='1'}>
                         <div style={{fontSize:10,fontWeight:700,color:'#fff',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{a.appointment_time?.slice(0,5)} {name||'—'}</div>
                         {h>30&&<div style={{fontSize:9,color:'rgba(255,255,255,0.82)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{sv?.name}</div>}
                       </div>
@@ -410,7 +497,8 @@ function CalendarView({data,onCancel,onApptAdded,salonSchedule=[],lockedStylistI
       <div style={{display:'flex',gap:10}}><Btn variant="secondary" onClick={()=>setCancelM(null)} style={{flex:1}}>Volver</Btn><Btn variant="danger" onClick={()=>{onCancel(cancelM.id);setCancelM(null)}} style={{flex:1}}>Cancelar cita</Btn></div>
     </Modal>}
 
-    {addM&&<AddApptModal data={data} defaultDate={addM.date} defaultStylistId={addM.stylistId} onSave={onApptAdded} onClose={()=>setAddM(null)}/>}
+    {addM&&<AddApptModal data={data} defaultDate={addM.date} defaultStylistId={addM.stylistId} defaultTime={addM.time} onSave={onApptAdded} onClose={()=>setAddM(null)}/>}
+    {blockM&&<BlockOnDragModal data={data} sel={blockM} onSave={async d=>{await onAddBlock(d)}} onClose={()=>setBlockM(null)}/>}
   </div>
 }
 
@@ -1295,7 +1383,7 @@ export default function App(){
     <Sidebar active={page} onNav={setPage} isMainAdmin={isMainAdmin} stylistName={myStyName}/>
     <main style={{flex:1,marginLeft:'var(--sidebar-w)',padding:'24px 28px',maxWidth:'calc(100vw - var(--sidebar-w))'}}>
       {page==='dash'&&isMainAdmin&&<Dashboard data={D}/>}
-      {page==='cal'&&<CalendarView data={D} onCancel={cancelAppt} onApptAdded={loadAll} salonSchedule={salonSchedule} lockedStylistId={isMainAdmin?null:myStyId}/>}
+      {page==='cal'&&<CalendarView data={D} onCancel={cancelAppt} onApptAdded={loadAll} onAddBlock={addBlock} salonSchedule={salonSchedule} lockedStylistId={isMainAdmin?null:myStyId}/>}
       {page==='finance'&&isMainAdmin&&<FacturacionView data={D} onAddExpense={addExpense} onDelExpense={delExpense}/>}
       {page==='barbers'&&isMainAdmin&&<BarberStats data={D}/>}
       {page==='clients'&&isMainAdmin&&<ClientsView data={D}/>}
