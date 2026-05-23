@@ -755,14 +755,20 @@ function FacturacionView({data,onAddExpense,onDelExpense}){
   const getTotal=id=>fees.filter(f=>f.stylist_id===id).reduce((s,f)=>s+Number(f.amount_due),0)
   const getPaid=id=>fees.filter(f=>f.stylist_id===id).reduce((s,f)=>s+Number(f.amount_paid),0)
   const totalDebt=enrolled.reduce((s,st)=>s+Math.max(0,getDebt(st.id)),0)
-  const cobradoMes=fees.filter(f=>f.year===thisY&&f.month===thisM&&Number(f.amount_paid)>=Number(f.amount_due)&&Number(f.amount_due)>0).reduce((s,f)=>s+Number(f.amount_paid),0)
-  const pendienteMes=fees.filter(f=>f.year===thisY&&f.month===thisM&&Number(f.amount_paid)<Number(f.amount_due)).reduce((s,f)=>s+(Number(f.amount_due)-Number(f.amount_paid)),0)
+  const cobradoRango=fees.filter(f=>feeInRange(f,fromM,toM)&&Number(f.amount_paid)>=Number(f.amount_due)&&Number(f.amount_due)>0).reduce((s,f)=>s+Number(f.amount_paid),0)
+  const pendienteRango=fees.filter(f=>feeInRange(f,fromM,toM)&&Number(f.amount_paid)<Number(f.amount_due)).reduce((s,f)=>s+(Number(f.amount_due)-Number(f.amount_paid)),0)
 
   return<div>
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
-      <div><h1 style={{fontSize:24,fontWeight:900}}>Facturación</h1></div>
-      <div style={{display:'flex',background:'var(--white)',borderRadius:9,padding:3,border:'1.5px solid var(--border)'}}>
-        {[['alumnos','🎓 Alumnos'],['gastos','💰 Gastos']].map(([id,l])=><button key={id} onClick={()=>setTab(id)} style={{padding:'7px 16px',fontSize:12,fontWeight:700,fontFamily:'inherit',border:'none',borderRadius:7,cursor:'pointer',background:tab===id?'var(--purple-grad)':'transparent',color:tab===id?'#fff':'var(--text3)'}}>{l}</button>)}
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end',marginBottom:20,flexWrap:'wrap',gap:12}}>
+      <div>
+        <h1 style={{fontSize:24,fontWeight:900}}>Facturación</h1>
+        <p style={{fontSize:13,color:'var(--text3)',marginTop:2,fontWeight:600}}>{rangeLabel}</p>
+      </div>
+      <div style={{display:'flex',gap:10,alignItems:'center',flexWrap:'wrap'}}>
+        <MonthRangePicker from={fromM} to={toM} onChange={(f,t)=>{setFromM(f);setToM(t)}}/>
+        <div style={{display:'flex',background:'var(--white)',borderRadius:9,padding:3,border:'1.5px solid var(--border)'}}>
+          {[['alumnos','🎓 Alumnos'],['gastos','💰 Gastos']].map(([id,l])=><button key={id} onClick={()=>setTab(id)} style={{padding:'7px 16px',fontSize:12,fontWeight:700,fontFamily:'inherit',border:'none',borderRadius:7,cursor:'pointer',background:tab===id?'var(--purple-grad)':'transparent',color:tab===id?'#fff':'var(--text3)'}}>{l}</button>)}
+        </div>
       </div>
     </div>
 
@@ -774,9 +780,9 @@ function FacturacionView({data,onAddExpense,onDelExpense}){
       </div>}
       {!dbErr&&<>
         <div style={{display:'flex',gap:14,marginBottom:20,flexWrap:'wrap'}}>
-          <Stat label="Cobrado este mes" value={`${cobradoMes.toFixed(0)}€`} icon="✅" color="var(--green)" bg="var(--green-bg)"/>
-          <Stat label="Pendiente este mes" value={`${pendienteMes.toFixed(0)}€`} icon="⏳" color="var(--yellow)" bg="var(--yellow-bg)"/>
-          <Stat label="Deuda total" value={`${totalDebt.toFixed(0)}€`} icon="⚠️" color="var(--red)" bg="var(--red-bg)"/>
+          <Stat label={fromM===toM?'Cobrado este mes':'Cobrado en período'} value={`${cobradoRango.toFixed(0)}€`} icon="✅" color="var(--green)" bg="var(--green-bg)" sub={fromM===toM?undefined:rangeLabel}/>
+          <Stat label={fromM===toM?'Pendiente este mes':'Pendiente en período'} value={`${pendienteRango.toFixed(0)}€`} icon="⏳" color="var(--yellow)" bg="var(--yellow-bg)" sub={fromM===toM?undefined:rangeLabel}/>
+          <Stat label="Deuda total acumulada" value={`${totalDebt.toFixed(0)}€`} icon="⚠️" color="var(--red)" bg="var(--red-bg)" sub="Histórico"/>
           <Stat label="Alumnos" value={enrolled.length} icon="🎓" color="var(--blue)" bg="var(--blue-bg)"/>
         </div>
         <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginBottom:14}}>
@@ -854,13 +860,9 @@ function FacturacionView({data,onAddExpense,onDelExpense}){
     </div>}
 
     {tab==='gastos'&&<div>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end',marginBottom:20,flexWrap:'wrap',gap:12}}>
-        <p style={{fontSize:14,color:'var(--text3)',fontWeight:600}}>{rangeLabel}</p>
-        <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-          <MonthRangePicker from={fromM} to={toM} onChange={(f,t)=>{setFromM(f);setToM(t)}}/>
-          <Btn small variant="secondary" onClick={handleExport}>📥 Ingresos CSV</Btn>
-          <Btn small variant="secondary" onClick={handleExportExp}>📥 Gastos CSV</Btn>
-        </div>
+      <div style={{display:'flex',justifyContent:'flex-end',gap:8,marginBottom:16,flexWrap:'wrap'}}>
+        <Btn small variant="secondary" onClick={handleExport}>📥 Ingresos CSV</Btn>
+        <Btn small variant="secondary" onClick={handleExportExp}>📥 Gastos CSV</Btn>
       </div>
       <div style={{display:'flex',gap:14,marginBottom:20,flexWrap:'wrap'}}>
         <Stat label="Ingresos" value={`${revenue.toFixed(0)}€`} icon="💰" color="var(--green)" bg="var(--green-bg)" sub={feeRevenue>0?`Citas: ${apptRevenue.toFixed(0)}€ · Cuotas: ${feeRevenue.toFixed(0)}€`:`${fAppts.length} citas`}/>
