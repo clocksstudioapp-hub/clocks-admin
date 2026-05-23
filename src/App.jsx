@@ -79,6 +79,38 @@ function Sel({label,children,...p}){return<div style={{marginBottom:13}}>{label&
 function Modal({children,onClose}){return<div onClick={onClose} style={{position:'fixed',inset:0,background:'rgba(26,10,59,0.45)',backdropFilter:'blur(5px)',display:'flex',alignItems:'center',justifyContent:'center',zIndex:200,padding:24}}><div onClick={e=>e.stopPropagation()} className="fade" style={{background:'var(--white)',borderRadius:18,padding:30,maxWidth:500,width:'100%',boxShadow:'var(--shadow-lg)',maxHeight:'88vh',overflowY:'auto'}}>{children}</div></div>}
 function Stat({label,value,sub,icon,color='var(--purple)',bg='var(--purple-bg)'}){return<div className="fade" style={{background:'var(--white)',borderRadius:14,padding:'18px 20px',border:'1.5px solid var(--border)',boxShadow:'var(--shadow)',flex:1,minWidth:160}}><div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-start',marginBottom:10}}><div style={{fontSize:11,fontWeight:600,color:'var(--text3)',textTransform:'uppercase',letterSpacing:'0.05em'}}>{label}</div><div style={{width:34,height:34,borderRadius:9,background:bg,display:'flex',alignItems:'center',justifyContent:'center',fontSize:17}}>{icon}</div></div><div style={{fontSize:27,fontWeight:900,lineHeight:1,color:'var(--text)'}}>{value}</div>{sub&&<div style={{fontSize:11,color:'var(--text3)',marginTop:6}}>{sub}</div>}</div>}
 
+// ═══ MONTH RANGE PICKER ═══
+const ymNow=()=>{const d=new Date();return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`}
+const ymShift=(ym,delta)=>{const[y,m]=ym.split('-').map(Number);const d=new Date(y,m-1+delta,1);return`${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}`}
+const ymLabel=ym=>{const[y,m]=ym.split('-').map(Number);return`${MO[m-1]} ${y}`}
+const inMonthRange=(dateStr,from,to)=>{if(!dateStr)return false;const ym=dateStr.slice(0,7);return ym>=from&&ym<=to}
+const feeInRange=(f,from,to)=>{const ym=`${f.year}-${String(f.month).padStart(2,'0')}`;return ym>=from&&ym<=to}
+
+function MonthRangePicker({from,to,onChange}){
+  const setPreset=(k)=>{
+    const cur=ymNow()
+    if(k==='this')onChange(cur,cur)
+    else if(k==='last'){const p=ymShift(cur,-1);onChange(p,p)}
+    else if(k==='3m')onChange(ymShift(cur,-2),cur)
+    else if(k==='year'){const y=cur.slice(0,4);onChange(`${y}-01`,cur)}
+  }
+  const isThis=from===to&&from===ymNow()
+  const isLast=from===to&&from===ymShift(ymNow(),-1)
+  const is3m=from===ymShift(ymNow(),-2)&&to===ymNow()
+  const isYear=from===`${ymNow().slice(0,4)}-01`&&to===ymNow()
+  const presets=[['this','Mes',isThis],['last','Pasado',isLast],['3m','3M',is3m],['year','Año',isYear]]
+  return<div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+    <div style={{display:'flex',background:'var(--white)',borderRadius:9,padding:3,border:'1.5px solid var(--border)'}}>
+      {presets.map(([k,l,act])=><button key={k} onClick={()=>setPreset(k)} style={{padding:'7px 12px',fontSize:12,fontWeight:700,fontFamily:'inherit',border:'none',borderRadius:7,cursor:'pointer',background:act?'var(--purple-grad)':'transparent',color:act?'#fff':'var(--text3)'}}>{l}</button>)}
+    </div>
+    <div style={{display:'flex',alignItems:'center',gap:6,background:'var(--white)',border:'1.5px solid var(--border)',borderRadius:9,padding:'4px 8px'}}>
+      <input type="month" value={from} max={to} onChange={e=>onChange(e.target.value,to)} style={{border:'none',background:'transparent',fontSize:12,fontWeight:600,fontFamily:'inherit',color:'var(--text)',padding:'4px 2px',cursor:'pointer',outline:'none'}}/>
+      <span style={{fontSize:12,color:'var(--text3)',fontWeight:600}}>—</span>
+      <input type="month" value={to} min={from} onChange={e=>onChange(from,e.target.value)} style={{border:'none',background:'transparent',fontSize:12,fontWeight:600,fontFamily:'inherit',color:'var(--text)',padding:'4px 2px',cursor:'pointer',outline:'none'}}/>
+    </div>
+  </div>
+}
+
 // ═══ SIDEBAR ═══
 function Sidebar({active,onNav,isMainAdmin,stylistName}){
   const[imgOk,setImgOk]=useState(true)
@@ -132,26 +164,31 @@ function AdminAuth({onLogin}){
 // ═══ DASHBOARD ═══
 function Dashboard({data}){
   const{appts,profiles,stylists,services,expenses,dashFees=[]}=data
-  const today=toK(new Date()),thisMonth=today.slice(0,7)
-  const thisY=new Date().getFullYear(),thisM=new Date().getMonth()+1
-  const mAppts=appts.filter(a=>a.appointment_date.slice(0,7)===thisMonth)
+  const today=toK(new Date())
+  const[fromM,setFromM]=useState(ymNow())
+  const[toM,setToM]=useState(ymNow())
+  const mAppts=appts.filter(a=>inMonthRange(a.appointment_date,fromM,toM))
   const mConf=mAppts.filter(a=>a.status==='confirmed'||a.status==='completed')
   const mCanc=mAppts.filter(a=>a.status==='cancelled').length
   const todayA=appts.filter(a=>a.appointment_date===today&&a.status==='confirmed')
   const apptRevenue=mConf.reduce((s,a)=>{const sv=services.find(x=>x.id===a.service_id);return s+(sv?Number(sv.price):0)},0)
-  const feeRevenue=dashFees.filter(f=>f.year===thisY&&f.month===thisM).reduce((s,f)=>s+Number(f.amount_paid||0),0)
+  const feeRevenue=dashFees.filter(f=>feeInRange(f,fromM,toM)).reduce((s,f)=>s+Number(f.amount_paid||0),0)
   const revenue=apptRevenue+feeRevenue
-  const mExp=expenses.filter(e=>e.expense_date?.slice(0,7)===thisMonth).reduce((s,e)=>s+Number(e.amount),0)
+  const mExp=expenses.filter(e=>inMonthRange(e.expense_date,fromM,toM)).reduce((s,e)=>s+Number(e.amount),0)
   const profit=revenue-mExp
+  const rangeLabel=fromM===toM?ymLabel(fromM):`${ymLabel(fromM)} — ${ymLabel(toM)}`
   const clients=new Set(mConf.map(a=>a.user_id).filter(Boolean)).size
   const bySty={}
   mConf.forEach(a=>{const st=stylists.find(s=>s.id===a.stylist_id);const sv=services.find(s=>s.id===a.service_id);if(!st)return;if(!bySty[st.name])bySty[st.name]={count:0,rev:0};bySty[st.name].count++;bySty[st.name].rev+=sv?Number(sv.price):0})
   const topSvc={}
   mConf.forEach(a=>{const sv=services.find(s=>s.id===a.service_id);if(!sv)return;if(!topSvc[sv.name])topSvc[sv.name]={c:0,r:0};topSvc[sv.name].c++;topSvc[sv.name].r+=Number(sv.price)})
   return<div>
-    <div style={{marginBottom:24}}><h1 style={{fontSize:24,fontWeight:900}}>Dashboard</h1><p style={{fontSize:14,color:'var(--text3)'}}>{MO[new Date().getMonth()]} {new Date().getFullYear()}</p></div>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end',marginBottom:20,flexWrap:'wrap',gap:12}}>
+      <div><h1 style={{fontSize:24,fontWeight:900}}>Dashboard</h1><p style={{fontSize:14,color:'var(--text3)'}}>{rangeLabel}</p></div>
+      <MonthRangePicker from={fromM} to={toM} onChange={(f,t)=>{setFromM(f);setToM(t)}}/>
+    </div>
     <div style={{display:'flex',gap:14,marginBottom:20,flexWrap:'wrap'}}>
-      <Stat label="Citas hoy" value={todayA.length} icon="📅" sub={`${mConf.length} este mes`}/>
+      <Stat label="Citas hoy" value={todayA.length} icon="📅" sub={`${mConf.length} en período`}/>
       <Stat label="Ingresos" value={`${revenue.toFixed(0)}€`} icon="💰" color="var(--green)" bg="var(--green-bg)" sub={feeRevenue>0?`Citas: ${apptRevenue.toFixed(0)}€ · Cuotas: ${feeRevenue.toFixed(0)}€`:undefined}/>
       <Stat label="Gastos" value={`${mExp.toFixed(0)}€`} icon="📉" color="var(--red)" bg="var(--red-bg)"/>
       <Stat label="Beneficio" value={`${profit.toFixed(0)}€`} icon={profit>=0?"📈":"📉"} color={profit>=0?"var(--green)":"var(--red)"} bg={profit>=0?"var(--green-bg)":"var(--red-bg)"}/>
@@ -650,11 +687,12 @@ const exportStudentsXLSX=(enrolled,configs,fees,yr)=>{
 
 // ═══ FACTURACIÓN ═══
 function FacturacionView({data,onAddExpense,onDelExpense}){
-  const{appts,services,expenses,stylists}=data
+  const{appts,services,expenses,stylists,dashFees=[]}=data
   const[tab,setTab]=useState('alumnos')
 
   // ── GASTOS state ──
-  const[period,setPeriod]=useState('month'),[showAdd,setShowAdd]=useState(false)
+  const[fromM,setFromM]=useState(ymNow()),[toM,setToM]=useState(ymNow())
+  const[showAdd,setShowAdd]=useState(false)
   const[eAmt,setEAmt]=useState(''),[eDesc,setEDesc]=useState(''),[eCat,setECat]=useState('general'),[eDate,setEDate]=useState(toK(new Date()))
 
   // ── ALUMNOS state ──
@@ -694,18 +732,20 @@ function FacturacionView({data,onAddExpense,onDelExpense}){
   const markUnpaid=async(feeId)=>{await supabase.from('student_fees').update({amount_paid:0,paid_at:null}).eq('id',feeId);loadSt()}
 
   // ── GASTOS logic ──
-  const now=new Date(),thisMonth=toK(now).slice(0,7)
-  const range=period==='week'?{s:toK(getWeekDays(now)[0]),e:toK(getWeekDays(now)[6]),l:`Semana ${fS(getWeekDays(now)[0])} — ${fS(getWeekDays(now)[6])}`}:{s:`${thisMonth}-01`,e:`${thisMonth}-31`,l:`${MO[now.getMonth()]} ${now.getFullYear()}`}
-  const fAppts=appts.filter(a=>a.appointment_date>=range.s&&a.appointment_date<=range.e&&(a.status==='confirmed'||a.status==='completed'))
-  const revenue=fAppts.reduce((s,a)=>{const sv=services.find(x=>x.id===a.service_id);return s+(sv?Number(sv.price):0)},0)
-  const fExp=expenses.filter(e=>e.expense_date>=range.s&&e.expense_date<=range.e)
+  const now=new Date()
+  const rangeLabel=fromM===toM?ymLabel(fromM):`${ymLabel(fromM)} — ${ymLabel(toM)}`
+  const fAppts=appts.filter(a=>inMonthRange(a.appointment_date,fromM,toM)&&(a.status==='confirmed'||a.status==='completed'))
+  const apptRevenue=fAppts.reduce((s,a)=>{const sv=services.find(x=>x.id===a.service_id);return s+(sv?Number(sv.price):0)},0)
+  const feeRevenue=dashFees.filter(f=>feeInRange(f,fromM,toM)).reduce((s,f)=>s+Number(f.amount_paid||0),0)
+  const revenue=apptRevenue+feeRevenue
+  const fExp=expenses.filter(e=>inMonthRange(e.expense_date,fromM,toM))
   const totalExp=fExp.reduce((s,e)=>s+Number(e.amount),0),profit=revenue-totalExp
   const byDay={};fAppts.forEach(a=>{if(!byDay[a.appointment_date])byDay[a.appointment_date]=0;const sv=services.find(x=>x.id===a.service_id);byDay[a.appointment_date]+=sv?Number(sv.price):0})
   const maxD=Math.max(...Object.values(byDay),1)
   const byCat={};fExp.forEach(e=>{if(!byCat[e.category])byCat[e.category]=0;byCat[e.category]+=Number(e.amount)})
   const handleAdd=()=>{if(!eAmt||!eDesc.trim())return;onAddExpense({amount:parseFloat(eAmt),description:eDesc.trim(),category:eCat,expense_date:eDate});setShowAdd(false);setEAmt('');setEDesc('');setECat('general')}
-  const handleExport=()=>{const rows=fAppts.map(a=>{const sv=services.find(x=>x.id===a.service_id);const st=data.stylists.find(x=>x.id===a.stylist_id);const pr=data.profiles[a.user_id];return{Fecha:a.appointment_date,Hora:a.appointment_time?.slice(0,5),Cliente:pr?.full_name||'—',Servicio:sv?.name||'—',Barbero:st?.name||'—',Precio:sv?Number(sv.price).toFixed(2):'0',Estado:a.status}});if(rows.length>0)exportCSV(rows,`ingresos_${range.s}_${range.e}`)}
-  const handleExportExp=()=>{const rows=fExp.map(e=>({Fecha:e.expense_date,Descripcion:e.description,Categoria:e.category,Importe:Number(e.amount).toFixed(2)}));if(rows.length>0)exportCSV(rows,`gastos_${range.s}_${range.e}`)}
+  const handleExport=()=>{const rows=fAppts.map(a=>{const sv=services.find(x=>x.id===a.service_id);const st=data.stylists.find(x=>x.id===a.stylist_id);const pr=data.profiles[a.user_id];return{Fecha:a.appointment_date,Hora:a.appointment_time?.slice(0,5),Cliente:pr?.full_name||'—',Servicio:sv?.name||'—',Barbero:st?.name||'—',Precio:sv?Number(sv.price).toFixed(2):'0',Estado:a.status}});if(rows.length>0)exportCSV(rows,`ingresos_${fromM}_${toM}`)}
+  const handleExportExp=()=>{const rows=fExp.map(e=>({Fecha:e.expense_date,Descripcion:e.description,Categoria:e.category,Importe:Number(e.amount).toFixed(2)}));if(rows.length>0)exportCSV(rows,`gastos_${fromM}_${toM}`)}
 
   // ── ALUMNOS helpers ──
   const thisM=now.getMonth()+1,thisY=now.getFullYear()
@@ -814,21 +854,19 @@ function FacturacionView({data,onAddExpense,onDelExpense}){
     </div>}
 
     {tab==='gastos'&&<div>
-      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
-        <p style={{fontSize:14,color:'var(--text3)'}}>{range.l}</p>
-        <div style={{display:'flex',gap:8}}>
-          <div style={{display:'flex',background:'var(--white)',borderRadius:9,padding:3,border:'1.5px solid var(--border)'}}>
-            {[['week','Semana'],['month','Mes']].map(([id,l])=><button key={id} onClick={()=>setPeriod(id)} style={{padding:'7px 14px',fontSize:12,fontWeight:700,fontFamily:'inherit',border:'none',borderRadius:7,cursor:'pointer',background:period===id?'var(--purple-grad)':'transparent',color:period===id?'#fff':'var(--text3)'}}>{l}</button>)}
-          </div>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'flex-end',marginBottom:20,flexWrap:'wrap',gap:12}}>
+        <p style={{fontSize:14,color:'var(--text3)',fontWeight:600}}>{rangeLabel}</p>
+        <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
+          <MonthRangePicker from={fromM} to={toM} onChange={(f,t)=>{setFromM(f);setToM(t)}}/>
           <Btn small variant="secondary" onClick={handleExport}>📥 Ingresos CSV</Btn>
           <Btn small variant="secondary" onClick={handleExportExp}>📥 Gastos CSV</Btn>
         </div>
       </div>
       <div style={{display:'flex',gap:14,marginBottom:20,flexWrap:'wrap'}}>
-        <Stat label="Ingresos" value={`${revenue.toFixed(0)}€`} icon="💰" color="var(--green)" bg="var(--green-bg)" sub={`${fAppts.length} citas`}/>
+        <Stat label="Ingresos" value={`${revenue.toFixed(0)}€`} icon="💰" color="var(--green)" bg="var(--green-bg)" sub={feeRevenue>0?`Citas: ${apptRevenue.toFixed(0)}€ · Cuotas: ${feeRevenue.toFixed(0)}€`:`${fAppts.length} citas`}/>
         <Stat label="Gastos" value={`${totalExp.toFixed(0)}€`} icon="📉" color="var(--red)" bg="var(--red-bg)" sub={`${fExp.length} gastos`}/>
         <Stat label="Beneficio neto" value={`${profit.toFixed(0)}€`} icon={profit>=0?"✅":"⚠️"} color={profit>=0?"var(--green)":"var(--red)"} bg={profit>=0?"var(--green-bg)":"var(--red-bg)"} sub={revenue>0?`Margen: ${(profit/revenue*100).toFixed(0)}%`:''}/>
-        <Stat label="Media por cita" value={fAppts.length>0?`${(revenue/fAppts.length).toFixed(0)}€`:'—'} icon="📊"/>
+        <Stat label="Media por cita" value={fAppts.length>0?`${(apptRevenue/fAppts.length).toFixed(0)}€`:'—'} icon="📊"/>
       </div>
       <div style={{display:'grid',gridTemplateColumns:'2fr 1fr',gap:14,marginBottom:20}}>
         <div className="fade" style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',padding:20,boxShadow:'var(--shadow)'}}>
