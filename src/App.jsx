@@ -48,7 +48,7 @@ const getWeekDays=d=>{const mon=new Date(d);const day=mon.getDay();const diff=da
 const normName=s=>s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
 const daysForCount=n=>n<=1?7:n<=2?5:n<=3?3:n<=4?2:1
 const alvaroEffDur=(sty,svc)=>{if(!sty||!svc)return svc?.duration||30;const isA=normName(sty.name||'').includes('alvaro');const isQ=normName(svc.name||'').includes('corte')||normName(svc.name||'').includes('barba');return(isA&&isQ)?30:svc.duration}
-const BOOKING_API_URL=import.meta.env.VITE_BOOKING_API_URL||''
+const BOOKING_API_URL=import.meta.env.VITE_BOOKING_API_URL||'https://clocks-school-app.vercel.app'
 // fire-and-forget: el email no debe bloquear ni romper el movimiento
 const notifyMoved=appointmentId=>{
   if(!BOOKING_API_URL)return
