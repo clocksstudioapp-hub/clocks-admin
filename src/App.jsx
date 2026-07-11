@@ -48,6 +48,12 @@ const getWeekDays=d=>{const mon=new Date(d);const day=mon.getDay();const diff=da
 const normName=s=>s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,'')
 const daysForCount=n=>n<=1?7:n<=2?5:n<=3?3:n<=4?2:1
 const alvaroEffDur=(sty,svc)=>{if(!sty||!svc)return svc?.duration||30;const isA=normName(sty.name||'').includes('alvaro');const isQ=normName(svc.name||'').includes('corte')||normName(svc.name||'').includes('barba');return(isA&&isQ)?30:svc.duration}
+const BOOKING_API_URL=import.meta.env.VITE_BOOKING_API_URL||''
+// fire-and-forget: el email no debe bloquear ni romper el movimiento
+const notifyMoved=appointmentId=>{
+  if(!BOOKING_API_URL)return
+  fetch(`${BOOKING_API_URL}/api/send-moved`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({appointmentId})}).catch(()=>{})
+}
 const PLANS=[{id:'iniciacion',label:'Iniciación',color:'var(--blue)',bg:'var(--blue-bg)'},{id:'perfeccionamiento',label:'Perfeccionamiento',color:'var(--purple)',bg:'var(--purple-bg)'}]
 
 const EXPENSE_CATS=[{id:'alquiler',label:'Alquiler',icon:'🏠'},{id:'productos',label:'Productos',icon:'🧴'},{id:'suministros',label:'Suministros',icon:'💡'},{id:'marketing',label:'Marketing',icon:'📣'},{id:'personal',label:'Personal',icon:'👤'},{id:'equipamiento',label:'Equipamiento',icon:'🪑'},{id:'general',label:'General',icon:'📦'},{id:'otro',label:'Otro',icon:'📝'}]
@@ -300,6 +306,73 @@ function BlockOnDragModal({data,sel,onSave,onClose}){
   </Modal>
 }
 
+// ═══ MOVE APPT MODAL (manual) ═══
+function MoveApptModal({data,appt,onSave,onClose}){
+  const{stylists,services,profiles}=data
+  const sv=services.find(s=>s.id===appt.service_id)
+  const[styId,setStyId]=useState(String(appt.stylist_id||''))
+  const[date,setDate]=useState(appt.appointment_date)
+  const[time,setTime]=useState(appt.appointment_time?.slice(0,5)||'09:00')
+  const[saving,setSaving]=useState(false)
+  const[err,setErr]=useState('')
+  const endTime=aM(time,sv?.duration??30)
+  const name=appt.user_id?profiles[appt.user_id]?.full_name:appt.notes?.replace(/^\[TEL\]\s*/,'').split(' — ')[0]||'Tel.'
+  const handleSave=async()=>{
+    if(!styId||!date||!time)return
+    setSaving(true);setErr('')
+    const{error}=await supabase.from('appointments').update({
+      appointment_date:date,
+      appointment_time:time,
+      end_time:endTime,
+      stylist_id:Number(styId)
+    }).eq('id',appt.id)
+    setSaving(false)
+    if(error){setErr(error.code==='23505'?'Ese hueco ya está ocupado por otra cita':(error.message||'Error al mover la cita'));return}
+    if(appt.user_id)notifyMoved(appt.id)
+    onSave&&onSave();onClose()
+  }
+  return<Modal onClose={onClose}>
+    <h3 style={{fontSize:19,fontWeight:900,marginBottom:6}}>📅 Mover cita</h3>
+    <div style={{fontSize:13,color:'var(--text3)',marginBottom:16}}>{name} · {sv?.name} · actual: {fDF(parseDate(appt.appointment_date))} {appt.appointment_time?.slice(0,5)}</div>
+    <Sel label="Profesional" value={styId} onChange={e=>setStyId(e.target.value)}>{stylists.filter(s=>s.active).map(s=><option key={s.id} value={s.id}>{s.name}</option>)}</Sel>
+    <div style={{display:'flex',gap:8}}>
+      <div style={{flex:1}}><Inp label="Nueva fecha" type="date" value={date} onChange={e=>setDate(e.target.value)}/></div>
+      <div style={{flex:1}}><Sel label="Nueva hora" value={time} onChange={e=>setTime(e.target.value)}>{gS('09:00','20:00',15).map(h=><option key={h} value={h}>{h}</option>)}</Sel></div>
+    </div>
+    {sv&&<div style={{background:'var(--purple-bg)',borderRadius:10,padding:'10px 14px',marginBottom:13,fontSize:13,color:'var(--purple)',fontWeight:600}}>⏱ Finaliza a las {endTime}{appt.user_id?' · 📩 El cliente recibirá un email con el cambio':''}</div>}
+    {err&&<div style={{padding:'9px 12px',background:'var(--red-bg)',borderRadius:8,marginBottom:10,fontSize:12,color:'var(--red)',fontWeight:600,border:'1px solid rgba(220,38,38,0.18)'}}>⚠️ {err}</div>}
+    <div style={{display:'flex',gap:8,marginTop:4}}>
+      <Btn variant="secondary" onClick={onClose} style={{flex:1}}>Volver</Btn>
+      <Btn onClick={handleSave} disabled={saving} style={{flex:1}}>{saving?'Moviendo…':'Mover cita'}</Btn>
+    </div>
+  </Modal>
+}
+
+// ═══ MOVE-ON-DRAG CONFIRM MODAL ═══
+function MoveConfirmModal({data,move,onConfirm,onClose,err}){
+  const{stylists,services,profiles}=data
+  const a=move.appt
+  const sv=services.find(s=>s.id===a.service_id)
+  const sty=stylists.find(s=>s.id===move.styId)
+  const name=a.user_id?profiles[a.user_id]?.full_name:a.notes?.replace(/^\[TEL\]\s*/,'').split(' — ')[0]||'Tel.'
+  const[saving,setSaving]=useState(false)
+  const go=async()=>{setSaving(true);await onConfirm(move);setSaving(false)}
+  return<Modal onClose={onClose}>
+    <h3 style={{fontSize:19,fontWeight:900,marginBottom:6}}>📅 Mover cita</h3>
+    <div style={{fontSize:13,color:'var(--text3)',marginBottom:14}}>{name} · {sv?.name}</div>
+    <div style={{display:'grid',gridTemplateColumns:'auto 1fr',gap:'6px 12px',marginBottom:14,fontSize:14}}>
+      <span style={{color:'var(--text3)'}}>De</span><span style={{fontWeight:600}}>{fDF(parseDate(a.appointment_date))} · {a.appointment_time?.slice(0,5)} · {stylists.find(s=>s.id===a.stylist_id)?.name}</span>
+      <span style={{color:'var(--text3)'}}>A</span><span style={{fontWeight:800,color:'var(--purple)'}}>{fDF(parseDate(move.date))} · {move.time} · {sty?.name}</span>
+    </div>
+    <div style={{background:'var(--purple-bg)',borderRadius:10,padding:'10px 14px',marginBottom:13,fontSize:13,color:'var(--purple)',fontWeight:600}}>⏱ Finaliza a las {move.endTime}{a.user_id?' · 📩 El cliente recibirá un email con el cambio':''}</div>
+    {err&&<div style={{padding:'9px 12px',background:'var(--red-bg)',borderRadius:8,marginBottom:10,fontSize:12,color:'var(--red)',fontWeight:600,border:'1px solid rgba(220,38,38,0.18)'}}>⚠️ {err}</div>}
+    <div style={{display:'flex',gap:8,marginTop:4}}>
+      <Btn variant="secondary" onClick={onClose} style={{flex:1}}>Cancelar</Btn>
+      <Btn onClick={go} disabled={saving} style={{flex:1}}>{saving?'Moviendo…':'Mover cita'}</Btn>
+    </div>
+  </Modal>
+}
+
 // ═══ TEAM DROPDOWN ═══
 function TeamDropdown({stylists,selected,onChange}){
   const[open,setOpen]=useState(false)
@@ -341,6 +414,9 @@ function CalendarView({data,onCancel,onApptAdded,onAddBlock,salonSchedule=[],loc
   const[addM,setAddM]=useState(null)
   const[blockM,setBlockM]=useState(null)
   const[dragInfo,setDragInfo]=useState(null)
+  const[moveDrag,setMoveDrag]=useState(null)     // arrastre de una cita existente
+  const[moveConfirm,setMoveConfirm]=useState(null)
+  const[moveM,setMoveM]=useState(null)           // modal "Mover" manual
   const activeSty=stylists.filter(s=>s.active)
   const alvaroSty=activeSty.find(s=>normName(s.name).includes('alvaro'))||activeSty[0]
   const[selectedIds,setSelectedIds]=useState(()=>activeSty.map(s=>s.id))
@@ -374,6 +450,24 @@ function CalendarView({data,onCancel,onApptAdded,onAddBlock,salonSchedule=[],loc
     return`${String(Math.floor(total/60)).padStart(2,'0')}:${String(total%60).padStart(2,'0')}`
   }
   const DRAG_PX=8
+  // ─── Arrastrar para mover citas ───
+  // Un hueco está "disponible" si cabe en el rango visible y no se solapa con otra
+  // cita ni con un bloqueo del mismo profesional/día. NO se restringe por horario del
+  // centro, descanso ni pasado, para dar la misma libertad que el modal "Mover" manual.
+  const canDrop=(appt,dateKey,styId,startT,endT)=>{
+    if(endT<=startT)return false
+    if(startT<`${String(START_H).padStart(2,'0')}:00`||endT>`${String(END_H).padStart(2,'0')}:00`)return false
+    for(const a2 of getAppts(dateKey,styId)){ if(a2.id===appt.id)continue; if(startT<a2.end_time.slice(0,5)&&endT>a2.appointment_time.slice(0,5))return false }
+    for(const b of getBlocks(dateKey,styId)){ if(startT<b.end_time.slice(0,5)&&endT>b.start_time.slice(0,5))return false }
+    return true
+  }
+  const commitMove=async m=>{
+    const{error}=await supabase.from('appointments').update({appointment_date:m.date,appointment_time:m.time,end_time:m.endTime,stylist_id:m.styId}).eq('id',m.appt.id)
+    if(error){setMoveConfirm(c=>c?{...c,err:error.code==='23505'?'Ese hueco ya está ocupado por otra cita':(error.message||'Error al mover la cita')}:null);return}
+    if(m.appt.user_id)notifyMoved(m.appt.id)
+    onApptAdded&&onApptAdded()
+    setMoveConfirm(null)
+  }
   const durToH=min=>(min/30)*SLOT_H
   const getAppts=(dateKey,styId)=>appts.filter(a=>a.appointment_date===dateKey&&a.stylist_id===styId&&a.status==='confirmed')
   const getBlocks=(dateKey,styId)=>blocks.filter(b=>b.blocked_date===dateKey&&b.stylist_id===styId)
@@ -478,7 +572,7 @@ function CalendarView({data,onCancel,onApptAdded,onAddBlock,salonSchedule=[],loc
                   const dragY1=isDragHere?Math.min(dragInfo.startY,dragInfo.currentY):0
                   const dragY2=isDragHere?Math.max(dragInfo.startY,dragInfo.currentY):0
                   const dragShown=isDragHere&&Math.abs(dragInfo.currentY-dragInfo.startY)>DRAG_PX
-                  return<div key={s.id} style={{position:'absolute',left:colL,width:colW,top:0,bottom:0,borderRight:si<visibleStylists.length-1?'1px solid var(--border)':'none'}}>
+                  return<div key={s.id} data-daykey={key} data-styid={s.id} style={{position:'absolute',left:colL,width:colW,top:0,bottom:0,borderRight:si<visibleStylists.length-1?'1px solid var(--border)':'none'}}>
                     <div
                       onMouseDown={e=>{
                         if(e.button!==0)return
@@ -490,6 +584,7 @@ function CalendarView({data,onCancel,onApptAdded,onAddBlock,salonSchedule=[],loc
                       style={{position:'absolute',inset:0,cursor:'crosshair',zIndex:1,userSelect:'none'}}
                       title={`Click: + cita · Arrastra: bloquear horario`}
                     />
+                    {moveDrag?.moved&&moveDrag.target&&moveDrag.target.dayKey===key&&moveDrag.target.styId===s.id&&(()=>{const gy=timeToY(moveDrag.target.time);const gh=durToH(moveDrag.duration);return<div style={{position:'absolute',top:gy,height:Math.max(gh-2,18),left:2,right:2,borderRadius:6,zIndex:6,pointerEvents:'none',background:moveDrag.valid?'rgba(22,163,74,0.18)':'rgba(220,38,38,0.14)',border:`1.5px dashed ${moveDrag.valid?'var(--green)':'var(--red)'}`}}/>})()}
                     {dragShown&&<div style={{position:'absolute',top:dragY1,height:dragY2-dragY1,left:2,right:2,background:'rgba(220,38,38,0.18)',border:'1.5px dashed red',borderRadius:6,zIndex:5,display:'flex',alignItems:'center',justifyContent:'center',pointerEvents:'none'}}>
                       <span style={{fontSize:11,fontWeight:700,color:'red'}}>{yToTime(dragY1)} – {yToTime(dragY2)}</span>
                     </div>}
@@ -501,7 +596,12 @@ function CalendarView({data,onCancel,onApptAdded,onAddBlock,salonSchedule=[],loc
                       const y=timeToY(a.appointment_time)
                       const actualDur=(()=>{if(a.end_time&&a.appointment_time){const[sh,sm]=a.appointment_time.slice(0,5).split(':').map(Number);const[eh,em]=a.end_time.slice(0,5).split(':').map(Number);return(eh*60+em)-(sh*60+sm)}return sv?.duration||30})()
                       const h=durToH(actualDur)
-                      return<div key={a.id} onMouseDown={e=>e.stopPropagation()} onClick={e=>{e.stopPropagation();setSelAppt(a)}} style={{position:'absolute',top:y+1,height:Math.max(h-2,20),left:2,right:2,background:color,borderRadius:6,zIndex:3,cursor:'pointer',padding:'3px 5px',overflow:'hidden',boxShadow:`0 1px 4px ${color}55`,transition:'opacity .15s'}} onMouseEnter={e=>e.currentTarget.style.opacity='.85'} onMouseLeave={e=>e.currentTarget.style.opacity='1'}>
+                      return<div key={a.id}
+                        onPointerDown={e=>{if(e.button!=null&&e.button!==0)return;e.preventDefault();e.stopPropagation();try{e.currentTarget.setPointerCapture(e.pointerId)}catch{}setMoveDrag({appt:a,duration:actualDur,startX:e.clientX,startY:e.clientY,curX:e.clientX,curY:e.clientY,moved:false,target:null,valid:false})}}
+                        onPointerMove={e=>{setMoveDrag(md=>{if(!md||md.appt.id!==a.id)return md;const moved=Math.hypot(e.clientX-md.startX,e.clientY-md.startY)>DRAG_PX;let target=null,valid=false;if(moved){const el=document.elementFromPoint(e.clientX,e.clientY);const col=el&&el.closest&&el.closest('[data-daykey]');if(col){const dayKey=col.getAttribute('data-daykey'),cStyId=Number(col.getAttribute('data-styid'));const yy=e.clientY-col.getBoundingClientRect().top;const time=yToTime(yy),endTime=aM(time,md.duration);valid=canDrop(md.appt,dayKey,cStyId,time,endTime);target={dayKey,styId:cStyId,time,endTime}}}return{...md,curX:e.clientX,curY:e.clientY,moved,target,valid}})}}
+                        onPointerUp={()=>{const md=moveDrag;setMoveDrag(null);if(!md||md.appt.id!==a.id)return;if(!md.moved){setSelAppt(a)}else if(md.target&&md.valid){const{dayKey,styId:tSty,time,endTime}=md.target;const changed=!(dayKey===a.appointment_date&&tSty===a.stylist_id&&time===a.appointment_time.slice(0,5));if(changed)setMoveConfirm({appt:a,date:dayKey,styId:tSty,time,endTime})}}}
+                        onPointerCancel={()=>setMoveDrag(null)}
+                        style={{position:'absolute',top:y+1,height:Math.max(h-2,20),left:2,right:2,background:color,borderRadius:6,zIndex:3,cursor:'grab',touchAction:'none',padding:'3px 5px',overflow:'hidden',boxShadow:`0 1px 4px ${color}55`,transition:'opacity .15s',opacity:moveDrag?.moved&&moveDrag.appt.id===a.id?0.4:1}} onMouseEnter={e=>{if(!moveDrag)e.currentTarget.style.opacity='.85'}} onMouseLeave={e=>{if(!moveDrag)e.currentTarget.style.opacity='1'}}>
                         <div style={{fontSize:10,fontWeight:700,color:'#fff',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{a.appointment_time?.slice(0,5)} {name||'—'}</div>
                         {h>30&&<div style={{fontSize:9,color:'rgba(255,255,255,0.82)',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{sv?.name}</div>}
                       </div>
@@ -521,7 +621,7 @@ function CalendarView({data,onCancel,onApptAdded,onAddBlock,salonSchedule=[],loc
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px 20px',marginBottom:20}}>
           {[['Cliente',name||'—'],['Servicio',sv?.name||'—'],['Profesional',st?.name||'—'],['Fecha',fDF(parseDate(a.appointment_date))],['Hora',`${a.appointment_time?.slice(0,5)} — ${a.end_time?.slice(0,5)}`],['Precio',sv?`${Number(sv.price).toFixed(2)} €`:'—'],['Estado',a.status],['Notas',a.notes||'—']].map(([k,v])=><div key={k}><div style={{fontSize:11,fontWeight:600,color:'var(--text3)',textTransform:'uppercase',marginBottom:2}}>{k}</div><div style={{fontSize:14,fontWeight:500}}>{v}</div></div>)}
         </div>
-        <div style={{display:'flex',gap:10}}><Btn variant="secondary" onClick={()=>setSelAppt(null)} style={{flex:1}}>Cerrar</Btn>{a.status==='confirmed'&&<Btn variant="danger" onClick={()=>{setCancelM(a);setSelAppt(null)}} style={{flex:1}}>Cancelar cita</Btn>}</div>
+        <div style={{display:'flex',gap:10}}><Btn variant="secondary" onClick={()=>setSelAppt(null)} style={{flex:1}}>Cerrar</Btn>{a.status==='confirmed'&&<Btn onClick={()=>{setMoveM(a);setSelAppt(null)}} style={{flex:1}}>📅 Mover</Btn>}{a.status==='confirmed'&&<Btn variant="danger" onClick={()=>{setCancelM(a);setSelAppt(null)}} style={{flex:1}}>Cancelar cita</Btn>}</div>
       </>})()}
     </Modal>}
 
@@ -536,6 +636,9 @@ function CalendarView({data,onCancel,onApptAdded,onAddBlock,salonSchedule=[],loc
 
     {addM&&<AddApptModal data={data} defaultDate={addM.date} defaultStylistId={addM.stylistId} defaultTime={addM.time} onSave={onApptAdded} onClose={()=>setAddM(null)}/>}
     {blockM&&<BlockOnDragModal data={data} sel={blockM} onSave={async d=>{await onAddBlock(d)}} onClose={()=>setBlockM(null)}/>}
+    {moveM&&<MoveApptModal data={data} appt={moveM} onSave={onApptAdded} onClose={()=>setMoveM(null)}/>}
+    {moveDrag?.moved&&<div style={{position:'fixed',left:moveDrag.curX+14,top:moveDrag.curY+14,zIndex:1000,pointerEvents:'none',background:moveDrag.valid?'var(--green)':'var(--red)',color:'#fff',padding:'4px 9px',borderRadius:7,fontSize:12,fontWeight:800,boxShadow:'0 4px 14px rgba(0,0,0,0.28)'}}>{moveDrag.target?(moveDrag.valid?`→ ${moveDrag.target.time}`:'✕ no disponible'):'✕'}</div>}
+    {moveConfirm&&<MoveConfirmModal data={data} move={moveConfirm} err={moveConfirm.err} onConfirm={commitMove} onClose={()=>setMoveConfirm(null)}/>}
   </div>
 }
 
