@@ -114,8 +114,8 @@ function MonthRangePicker({from,to,onChange}){
 // ═══ SIDEBAR ═══
 function Sidebar({active,onNav,isMainAdmin,stylistName}){
   const[imgOk,setImgOk]=useState(true)
-  const adminItems=[{id:'dash',label:'Dashboard',icon:'📊'},{id:'cal',label:'Calendario',icon:'📅'},{id:'finance',label:'Facturación',icon:'🧾'},{id:'barbers',label:'Barberos',icon:'📈'},{id:'clients',label:'Clientes',icon:'👥'},{id:'team',label:'Equipo',icon:'👤'},{id:'services',label:'Servicios',icon:'✂️'},{id:'blocks',label:'Bloqueos',icon:'🚫'},{id:'schedule',label:'Horario salón',icon:'🕐'}]
-  const barberItems=[{id:'cal',label:'Mi calendario',icon:'📅'},{id:'schedule',label:'Mi horario',icon:'🕐'},{id:'blocks',label:'Mis bloqueos',icon:'🚫'}]
+  const adminItems=[{id:'dash',label:'Dashboard',icon:'📊'},{id:'cal',label:'Calendario',icon:'📅'},{id:'finance',label:'Facturación',icon:'🧾'},{id:'barbers',label:'Barberos',icon:'📈'},{id:'clients',label:'Clientes',icon:'👥'},{id:'personal',label:'Personal',icon:'👥'},{id:'services',label:'Servicios',icon:'✂️'},{id:'blocks',label:'Bloqueos',icon:'🚫'},{id:'schedule',label:'Horario salón',icon:'🕐'}]
+  const barberItems=[{id:'cal',label:'Mi calendario',icon:'📅'},{id:'schedule',label:'Mi horario',icon:'🕐'},{id:'blocks',label:'Mis bloqueos',icon:'🚫'},{id:'timeoff',label:'Mis ausencias',icon:'🌴'}]
   const items=isMainAdmin?adminItems:barberItems
   return<div style={{width:'var(--sidebar-w)',background:'var(--white)',borderRight:'1.5px solid var(--border)',height:'100vh',position:'fixed',left:0,top:0,display:'flex',flexDirection:'column',zIndex:10,boxShadow:'2px 0 12px rgba(109,40,217,0.06)'}}>
     <div style={{padding:'18px 16px',borderBottom:'1.5px solid var(--border)'}}>
@@ -1087,6 +1087,247 @@ function ClientsView({data}){
   </div>
 }
 
+// ═══ PERSONAL (Equipo · Turnos · Ausencias) ═══
+function PersonalView({data,onSaveSty,onDelSty,onLink,onUnlink,onAddTimeOff,onDelTimeOff,onApproveTimeOff,onSaveRecurring,onSaveOverride}){
+  const[tab,setTab]=useState('equipo')
+  const tabs=[['equipo','Equipo','👤'],['turnos','Turnos','📋'],['ausencias','Ausencias','🌴']]
+  const pending=data.timeOff.filter(t=>!t.approved&&t.end_date>=toK(new Date())).length
+  return<div>
+    <h1 style={{fontSize:24,fontWeight:900,marginBottom:16}}>Personal</h1>
+    <div style={{display:'flex',gap:8,marginBottom:20,flexWrap:'wrap'}}>
+      {tabs.map(([id,l,ic])=><button key={id} onClick={()=>setTab(id)} style={{padding:'8px 16px',fontSize:13,fontWeight:700,fontFamily:'inherit',border:`1.5px solid ${tab===id?'var(--purple)':'var(--border2)'}`,background:tab===id?'var(--purple)':'var(--white)',color:tab===id?'#fff':'var(--text2)',borderRadius:20,cursor:'pointer'}}>{ic} {l}{id==='ausencias'&&pending>0?` (${pending})`:''}</button>)}
+    </div>
+    {tab==='equipo'&&<TeamView data={data} onSave={onSaveSty} onDel={onDelSty} onLink={onLink} onUnlink={onUnlink}/>}
+    {tab==='turnos'&&<TurnosView data={data} onSaveRecurring={onSaveRecurring} onSaveOverride={onSaveOverride}/>}
+    {tab==='ausencias'&&<AbsencesView data={data} onAdd={onAddTimeOff} onDel={onDelTimeOff} onApprove={onApproveTimeOff}/>}
+  </div>
+}
+
+// ═══ AUSENCIAS (time_off) ═══
+const ABSENCE_TYPES=[{id:'vacation',label:'Vacaciones',icon:'🌴'},{id:'sick',label:'Baja',icon:'🤒'},{id:'personal',label:'Personal',icon:'🙍'},{id:'other',label:'Otro',icon:'📝'}]
+const absLabel=t=>ABSENCE_TYPES.find(x=>x.id===t)?.label||t
+const absIcon=t=>ABSENCE_TYPES.find(x=>x.id===t)?.icon||'📝'
+const fRange=(a,b)=>a===b?fS(new Date(a+'T12:00')):`${fS(new Date(a+'T12:00'))} – ${fS(new Date(b+'T12:00'))}`
+
+function AbsenceRow({t,stylists,onDel,onApprove}){
+  return<div style={{display:'flex',alignItems:'center',gap:12,padding:'12px 20px',borderBottom:'1px solid var(--border)'}}>
+    <div style={{width:36,height:36,borderRadius:9,background:'var(--purple-bg)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15}}>{absIcon(t.type)}</div>
+    <div style={{flex:1}}>
+      <div style={{fontSize:14,fontWeight:600}}>{t.stylists?.name||stylists.find(s=>s.id===t.stylist_id)?.name||'—'} · {absLabel(t.type)}</div>
+      <div style={{fontSize:12,color:'var(--text3)'}}>{fRange(t.start_date,t.end_date)}{t.all_day?' · todo el día':` · ${t.start_time?.slice(0,5)}—${t.end_time?.slice(0,5)}`}{t.reason?` · ${t.reason}`:''}</div>
+    </div>
+    {t.approved
+      ?<span style={{fontSize:11,fontWeight:800,padding:'3px 8px',background:'var(--green-bg)',color:'var(--green)',borderRadius:8,textTransform:'uppercase',letterSpacing:'0.05em'}}>Aprobada</span>
+      :<Btn small variant="secondary" onClick={()=>onApprove(t.id)}>Aprobar</Btn>}
+    <Btn small variant="danger" onClick={()=>onDel(t.id)}>Quitar</Btn>
+  </div>
+}
+
+function AbsenceModal({stylists,fixedStylistId=null,onSubmit,onClose}){
+  const[sel,setSel]=useState(fixedStylistId?[fixedStylistId]:(stylists[0]?[stylists[0].id]:[]))
+  const[sd,setSd]=useState(toK(new Date())),[ed,setEd]=useState(toK(new Date()))
+  const[allDay,setAllDay]=useState(true),[st,setSt]=useState('09:00'),[et,setEt]=useState('14:00')
+  const[type,setType]=useState('vacation'),[reason,setReason]=useState('')
+  const toggle=id=>setSel(s=>s.includes(id)?s.filter(x=>x!==id):[...s,id])
+  const valid=sel.length>0&&ed>=sd&&(allDay||et>st)
+  const submit=()=>{
+    // El profesor (fixedStylistId) crea solicitudes pendientes; el admin crea aprobadas.
+    const approved=!fixedStylistId
+    const rows=sel.map(stylist_id=>({stylist_id,start_date:sd,end_date:ed,all_day:allDay,start_time:allDay?null:st,end_time:allDay?null:et,type,reason:reason||null,approved}))
+    onSubmit(rows)
+  }
+  return<Modal onClose={onClose}>
+    <h3 style={{fontSize:18,fontWeight:900,marginBottom:16}}>Nueva ausencia</h3>
+    {fixedStylistId
+      ?<div style={{marginBottom:13,padding:'9px 12px',background:'var(--purple-bg)',borderRadius:9,fontSize:13,fontWeight:600,color:'var(--purple)'}}>{stylists.find(s=>s.id===fixedStylistId)?.name}</div>
+      :<div style={{marginBottom:13}}>
+        <label style={{fontSize:12,fontWeight:600,color:'var(--text2)',marginBottom:6,display:'block',textTransform:'uppercase',letterSpacing:'0.04em'}}>Profesionales</label>
+        <div style={{display:'flex',flexWrap:'wrap',gap:6}}>{stylists.map(s=><button key={s.id} onClick={()=>toggle(s.id)} style={{padding:'6px 12px',borderRadius:8,border:`1.5px solid ${sel.includes(s.id)?'var(--purple)':'var(--border2)'}`,background:sel.includes(s.id)?'var(--purple)':'var(--white)',color:sel.includes(s.id)?'#fff':'var(--text2)',fontSize:13,fontWeight:700,cursor:'pointer',fontFamily:'inherit'}}>{s.name}</button>)}</div>
+      </div>}
+    <div style={{display:'flex',gap:8}}><div style={{flex:1}}><Inp label="Desde" type="date" value={sd} onChange={e=>setSd(e.target.value)}/></div><div style={{flex:1}}><Inp label="Hasta" type="date" value={ed} onChange={e=>setEd(e.target.value)}/></div></div>
+    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:13}}>
+      <button onClick={()=>setAllDay(!allDay)} style={{width:40,height:22,borderRadius:11,border:'none',cursor:'pointer',background:allDay?'var(--purple)':'var(--border)',position:'relative',transition:'all .3s'}}><div style={{width:18,height:18,borderRadius:9,background:'#fff',position:'absolute',top:2,left:allDay?20:2,transition:'all .3s',boxShadow:'0 1px 2px rgba(0,0,0,0.15)'}}/></button>
+      <span style={{fontSize:13,fontWeight:600}}>Todo el día</span>
+    </div>
+    {!allDay&&<div style={{display:'flex',gap:8}}><div style={{flex:1}}><Sel label="Desde" value={st} onChange={e=>setSt(e.target.value)}>{gS('07:00','22:30').map(h=><option key={h} value={h}>{h}</option>)}</Sel></div><div style={{flex:1}}><Sel label="Hasta" value={et} onChange={e=>setEt(e.target.value)}>{gS('07:30','23:00').map(h=><option key={h} value={h}>{h}</option>)}</Sel></div></div>}
+    <Sel label="Tipo" value={type} onChange={e=>setType(e.target.value)}>{ABSENCE_TYPES.map(t=><option key={t.id} value={t.id}>{t.label}</option>)}</Sel>
+    <Inp label="Motivo (opcional)" value={reason} onChange={e=>setReason(e.target.value)} placeholder="Ej: viaje familiar"/>
+    <div style={{display:'flex',gap:8,marginTop:6}}><Btn variant="secondary" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={submit} disabled={!valid} style={{flex:1}}>Guardar</Btn></div>
+  </Modal>
+}
+
+function AbsencesView({data,onAdd,onDel,onApprove}){
+  const[show,setShow]=useState(false)
+  const today=toK(new Date())
+  const upcoming=data.timeOff.filter(t=>t.end_date>=today).sort((a,b)=>a.start_date.localeCompare(b.start_date))
+  const pending=upcoming.filter(t=>!t.approved)
+  return<div>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+      <div><h2 style={{fontSize:20,fontWeight:900}}>Ausencias</h2><p style={{fontSize:13,color:'var(--text3)'}}>Vacaciones, bajas y permisos del equipo{pending.length>0?` · ${pending.length} pendiente${pending.length>1?'s':''} de aprobar`:''}</p></div>
+      <Btn onClick={()=>setShow(true)}>+ Añadir ausencia</Btn>
+    </div>
+    <div style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',boxShadow:'var(--shadow)',overflow:'hidden'}}>
+      {upcoming.length===0?<div style={{padding:30,textAlign:'center',color:'var(--text3)'}}>No hay ausencias próximas</div>:
+        upcoming.map(t=><AbsenceRow key={t.id} t={t} stylists={data.stylists} onDel={onDel} onApprove={onApprove}/>)}
+    </div>
+    {show&&<AbsenceModal stylists={data.stylists.filter(s=>s.active)} onSubmit={rows=>{onAdd(rows);setShow(false)}} onClose={()=>setShow(false)}/>}
+  </div>
+}
+
+function MyAbsencesView({data,stylistId,onAdd,onDel}){
+  const[show,setShow]=useState(false)
+  const today=toK(new Date())
+  const mine=data.timeOff.filter(t=>t.stylist_id===stylistId&&t.end_date>=today).sort((a,b)=>a.start_date.localeCompare(b.start_date))
+  return<div>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+      <div><h1 style={{fontSize:24,fontWeight:900}}>Mis ausencias</h1><p style={{fontSize:13,color:'var(--text3)'}}>Solicita vacaciones o permisos. El administrador las aprueba.</p></div>
+      <Btn onClick={()=>setShow(true)} disabled={!stylistId}>+ Solicitar</Btn>
+    </div>
+    <div style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',boxShadow:'var(--shadow)',overflow:'hidden'}}>
+      {mine.length===0?<div style={{padding:30,textAlign:'center',color:'var(--text3)'}}>No tienes ausencias próximas</div>:
+        mine.map(t=><div key={t.id} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 20px',borderBottom:'1px solid var(--border)'}}>
+          <div style={{width:36,height:36,borderRadius:9,background:'var(--purple-bg)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15}}>{absIcon(t.type)}</div>
+          <div style={{flex:1}}><div style={{fontSize:14,fontWeight:600}}>{absLabel(t.type)}</div><div style={{fontSize:12,color:'var(--text3)'}}>{fRange(t.start_date,t.end_date)}{t.all_day?' · todo el día':` · ${t.start_time?.slice(0,5)}—${t.end_time?.slice(0,5)}`}</div></div>
+          <span style={{fontSize:11,fontWeight:800,padding:'3px 8px',background:t.approved?'var(--green-bg)':'var(--yellow-bg)',color:t.approved?'var(--green)':'var(--yellow)',borderRadius:8,textTransform:'uppercase',letterSpacing:'0.05em'}}>{t.approved?'Aprobada':'Pendiente'}</span>
+          {!t.approved&&<Btn small variant="danger" onClick={()=>onDel(t.id)}>Quitar</Btn>}
+        </div>)}
+    </div>
+    {show&&stylistId&&<AbsenceModal stylists={data.stylists} fixedStylistId={stylistId} onSubmit={rows=>{onAdd(rows);setShow(false)}} onClose={()=>setShow(false)}/>}
+  </div>
+}
+
+// ═══ TURNOS (grid semanal editable) ═══
+const DOW_NAME=['Domingo','Lunes','Martes','Miércoles','Jueves','Viernes','Sábado']
+const toMin=t=>{const[h,m]=t.slice(0,5).split(':').map(Number);return h*60+m}
+const shiftMinutes=sc=>{ if(!sc||!sc.active)return 0; let mins=toMin(sc.end_time)-toMin(sc.start_time); if(sc.break_start&&sc.break_end)mins-=Math.max(0,toMin(sc.break_end)-toMin(sc.break_start)); return Math.max(0,mins) }
+
+function TurnosView({data,onSaveRecurring,onSaveOverride}){
+  const[weekStart,setWeekStart]=useState(()=>getWeekDays(new Date())[0])
+  const[edit,setEdit]=useState(null)
+  const schedules=data.schedules||[], overrides=data.overrides||[]
+  const days=getWeekDays(weekStart)
+  const actives=data.stylists.filter(s=>s.active)
+  // Horario efectivo: override(fecha) > recurrente(dow) > horario del salón(dow).
+  // El fallback al salón mantiene la celda y el total de horas coherentes cuando
+  // un profesional aún no tiene turno guardado.
+  const salonAsShift=d=>{
+    const sal=(data.salonSchedule||[]).find(x=>x.day_of_week===d.getDay())
+    return sal?{active:sal.active,start_time:sal.open_time,end_time:sal.close_time,break_start:sal.break_start,break_end:sal.break_end}:null
+  }
+  const eff=(sty,d)=>{
+    const dk=toK(d)
+    return overrides.find(o=>o.stylist_id===sty.id&&o.override_date===dk)||schedules.find(s=>s.stylist_id===sty.id&&s.day_of_week===d.getDay())||salonAsShift(d)
+  }
+  const cell=(sty,d)=>{
+    const dk=toK(d)
+    const isOv=!!overrides.find(o=>o.stylist_id===sty.id&&o.override_date===dk)
+    const closed=(data.closures||[]).some(c=>c.start_date<=dk&&dk<=c.end_date)
+    if(closed)return{txt:'🚪 Cerrado',c:'var(--text3)',bg:'var(--bg)',isOv}
+    const off=data.timeOff.find(t=>t.approved&&t.stylist_id===sty.id&&t.start_date<=dk&&dk<=t.end_date)
+    if(off&&off.all_day)return{txt:absIcon(off.type)+' Ausente',c:'var(--red)',bg:'var(--red-bg)',isOv}
+    const sc=eff(sty,d)
+    if(!sc||!sc.active)return{txt:'—',c:'var(--text3)',bg:'transparent',isOv}
+    return{txt:`${sc.start_time.slice(0,5)}–${sc.end_time.slice(0,5)}${off?' ·'+absIcon(off.type):''}`,c:'var(--text)',bg:off?'var(--yellow-bg)':'var(--white)',isOv}
+  }
+  const weekHours=sty=>{
+    let mins=0
+    for(const d of days){
+      const dk=toK(d)
+      if((data.closures||[]).some(c=>c.start_date<=dk&&dk<=c.end_date))continue
+      let m=shiftMinutes(eff(sty,d))
+      if(m===0)continue
+      const offs=data.timeOff.filter(t=>t.approved&&t.stylist_id===sty.id&&t.start_date<=dk&&dk<=t.end_date)
+      if(offs.some(t=>t.all_day))continue
+      offs.forEach(t=>{ if(t.start_time&&t.end_time)m-=Math.max(0,toMin(t.end_time)-toMin(t.start_time)) })
+      mins+=Math.max(0,m)
+    }
+    return Math.round(mins/30)/2 // horas netas redondeadas a 0.5
+  }
+  const shiftWk=n=>{const x=new Date(weekStart);x.setDate(x.getDate()+n*7);setWeekStart(x)}
+  return<div>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20,flexWrap:'wrap',gap:10}}>
+      <div><h2 style={{fontSize:20,fontWeight:900}}>Turnos</h2><p style={{fontSize:13,color:'var(--text3)'}}>Click en una celda para editar · ausencias en rojo · ✱ = excepción de esa semana</p></div>
+      <div style={{display:'flex',alignItems:'center',gap:8}}>
+        <Btn small variant="secondary" onClick={()=>shiftWk(-1)}>←</Btn>
+        <span style={{fontSize:13,fontWeight:700,minWidth:150,textAlign:'center'}}>{fS(days[0])} – {fS(days[6])}</span>
+        <Btn small variant="secondary" onClick={()=>shiftWk(1)}>→</Btn>
+      </div>
+    </div>
+    <div style={{overflowX:'auto',background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',boxShadow:'var(--shadow)'}}>
+      <table style={{borderCollapse:'collapse',width:'100%',minWidth:780}}>
+        <thead><tr>
+          <th style={{textAlign:'left',padding:'12px 14px',fontSize:12,color:'var(--text3)',textTransform:'uppercase',letterSpacing:'0.04em',position:'sticky',left:0,background:'var(--white)'}}>Profesional</th>
+          {days.map((d,i)=><th key={i} style={{padding:'12px 10px',fontSize:12,fontWeight:700,color:isT(d)?'var(--purple)':'var(--text2)',minWidth:96}}>{DL[i]}<div style={{fontSize:11,color:'var(--text3)',fontWeight:500}}>{d.getDate()}</div></th>)}
+          <th style={{padding:'12px 12px',fontSize:12,fontWeight:700,color:'var(--text2)',textAlign:'right'}}>Horas</th>
+        </tr></thead>
+        <tbody>
+          {actives.map(sty=><tr key={sty.id} style={{borderTop:'1px solid var(--border)'}}>
+            <td style={{padding:'12px 14px',fontSize:13,fontWeight:700,position:'sticky',left:0,background:'var(--white)'}}>{sty.name}</td>
+            {days.map((d,i)=>{const c=cell(sty,d);return<td key={i} style={{padding:'8px 6px',textAlign:'center'}}>
+              <button onClick={()=>setEdit({sty,date:d})} title="Editar turno" style={{position:'relative',fontSize:12,fontWeight:600,color:c.c,background:c.bg,padding:'5px 9px',borderRadius:7,border:'1px solid transparent',cursor:'pointer',fontFamily:'inherit',minWidth:74}}>
+                {c.txt}{c.isOv&&<span style={{position:'absolute',top:-4,right:-4,fontSize:11,color:'var(--orange)'}}>✱</span>}
+              </button>
+            </td>})}
+            <td style={{padding:'8px 12px',textAlign:'right',fontSize:13,fontWeight:800,color:'var(--purple)'}}>{weekHours(sty)}h</td>
+          </tr>)}
+        </tbody>
+      </table>
+    </div>
+    {edit&&<ShiftEditModal sty={edit.sty} date={edit.date} current={eff(edit.sty,edit.date)} isOverride={!!overrides.find(o=>o.stylist_id===edit.sty.id&&o.override_date===toK(edit.date))} onSaveRecurring={onSaveRecurring} onSaveOverride={onSaveOverride} onClose={()=>setEdit(null)}/>}
+  </div>
+}
+
+function ShiftEditModal({sty,date,current,isOverride,onSaveRecurring,onSaveOverride,onClose}){
+  const dow=date.getDay(), dk=toK(date)
+  const[active,setActive]=useState(current?current.active:true)
+  const[start,setStart]=useState(current?current.start_time.slice(0,5):'09:00')
+  const[end,setEnd]=useState(current?current.end_time.slice(0,5):'20:00')
+  const[hasBreak,setHasBreak]=useState(!!(current?.break_start&&current?.break_end))
+  const[bs,setBs]=useState(current?.break_start?.slice(0,5)||'14:00')
+  const[be,setBe]=useState(current?.break_end?.slice(0,5)||'15:00')
+  const[scope,setScope]=useState(isOverride?'week':'recurring')
+  const vals=()=>({active,start_time:start,end_time:end,break_start:hasBreak?bs:null,break_end:hasBreak?be:null})
+  const valid=!active||(end>start&&(!hasBreak||be>bs))
+  const save=()=>{
+    if(scope==='recurring')onSaveRecurring(sty.id,dow,vals(),dk)
+    else onSaveOverride(sty.id,dk,vals())
+    onClose()
+  }
+  const selStyle={padding:'8px 28px 8px 10px',fontSize:13,border:'1.5px solid var(--border2)',borderRadius:8,background:'var(--white)',color:'var(--text)',fontFamily:'inherit',cursor:'pointer'}
+  return<Modal onClose={onClose}>
+    <h3 style={{fontSize:18,fontWeight:900,marginBottom:4}}>Turno de {sty.name}</h3>
+    <p style={{fontSize:13,color:'var(--text3)',marginBottom:16}}>{DOW_NAME[dow]} · {fS(date)}</p>
+    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}>
+      <button onClick={()=>setActive(!active)} style={{width:40,height:22,borderRadius:11,border:'none',cursor:'pointer',background:active?'var(--purple)':'var(--border)',position:'relative',transition:'all .3s'}}><div style={{width:18,height:18,borderRadius:9,background:'#fff',position:'absolute',top:2,left:active?20:2,transition:'all .3s',boxShadow:'0 1px 2px rgba(0,0,0,0.15)'}}/></button>
+      <span style={{fontSize:13,fontWeight:600}}>{active?'Trabaja':'Día libre'}</span>
+    </div>
+    {active&&<>
+      <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:12}}>
+        <select value={start} onChange={e=>setStart(e.target.value)} style={selStyle}>{TIME_OPTS.map(h=><option key={h} value={h}>{h}</option>)}</select>
+        <span style={{fontSize:12,color:'var(--text3)',fontWeight:600}}>→</span>
+        <select value={end} onChange={e=>setEnd(e.target.value)} style={selStyle}>{TIME_OPTS.map(h=><option key={h} value={h}>{h}</option>)}</select>
+      </div>
+      <div style={{display:'flex',alignItems:'center',gap:10,marginBottom:14,flexWrap:'wrap'}}>
+        <button onClick={()=>setHasBreak(!hasBreak)} style={{display:'flex',alignItems:'center',gap:5,padding:'6px 12px',borderRadius:7,border:`1.5px solid ${hasBreak?'var(--orange)':'var(--border2)'}`,background:hasBreak?'var(--orange-bg)':'var(--white)',cursor:'pointer',fontSize:12,fontWeight:700,color:hasBreak?'var(--orange)':'var(--text3)',fontFamily:'inherit'}}>☕ {hasBreak?'Break':'+ Break'}</button>
+        {hasBreak&&<div style={{display:'flex',alignItems:'center',gap:6}}>
+          <select value={bs} onChange={e=>setBs(e.target.value)} style={selStyle}>{TIME_OPTS.map(h=><option key={h} value={h}>{h}</option>)}</select>
+          <span style={{fontSize:12,color:'var(--text3)',fontWeight:600}}>→</span>
+          <select value={be} onChange={e=>setBe(e.target.value)} style={selStyle}>{TIME_OPTS.map(h=><option key={h} value={h}>{h}</option>)}</select>
+        </div>}
+      </div>
+    </>}
+    <div style={{marginBottom:16,padding:'12px',background:'var(--bg)',borderRadius:10}}>
+      <div style={{fontSize:12,fontWeight:700,color:'var(--text2)',marginBottom:8,textTransform:'uppercase',letterSpacing:'0.04em'}}>Aplicar a</div>
+      {[['recurring',`Todos los ${DOW_NAME[dow].toLowerCase()}`],['week',`Solo esta semana (${fS(date)})`]].map(([id,l])=>
+        <button key={id} onClick={()=>setScope(id)} style={{display:'flex',alignItems:'center',gap:8,width:'100%',textAlign:'left',padding:'9px 11px',marginBottom:6,borderRadius:8,border:`1.5px solid ${scope===id?'var(--purple)':'var(--border2)'}`,background:scope===id?'var(--purple-bg)':'var(--white)',cursor:'pointer',fontFamily:'inherit'}}>
+          <span style={{width:16,height:16,borderRadius:'50%',border:`2px solid ${scope===id?'var(--purple)':'var(--border2)'}`,display:'inline-flex',alignItems:'center',justifyContent:'center'}}>{scope===id&&<span style={{width:8,height:8,borderRadius:'50%',background:'var(--purple)'}}/>}</span>
+          <span style={{fontSize:13,fontWeight:600,color:scope===id?'var(--purple)':'var(--text)'}}>{l}</span>
+        </button>)}
+    </div>
+    <div style={{display:'flex',gap:8}}><Btn variant="secondary" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={!valid} style={{flex:1}}>Guardar</Btn></div>
+  </Modal>
+}
+
 // ═══ TEAM CRUD ═══
 function TeamView({data,onSave,onDel,onLink,onUnlink}){
   const[edit,setEdit]=useState(null),[del,setDel]=useState(null),[linkFor,setLinkFor]=useState(null),[search,setSearch]=useState('')
@@ -1226,7 +1467,7 @@ function MyScheduleView({stylistId,onSaved}){
       const d=data||[]
       setRows(DAYS_ES.map(({dow,label})=>{
         const s=d.find(x=>x.day_of_week===dow)
-        return{dow,label,active:s?.active??true,start_time:s?.start_time?.slice(0,5)||'09:00',end_time:s?.end_time?.slice(0,5)||'20:00'}
+        return{dow,label,active:s?.active??true,start_time:s?.start_time?.slice(0,5)||'09:00',end_time:s?.end_time?.slice(0,5)||'20:00',hasBreak:!!(s?.break_start&&s?.break_end),break_start:s?.break_start?.slice(0,5)||'14:00',break_end:s?.break_end?.slice(0,5)||'15:00'}
       }))
       setLoaded(true)
     })
@@ -1238,7 +1479,7 @@ function MyScheduleView({stylistId,onSaved}){
     if(!stylistId)return
     setSaving(true);setMsg('')
     for(const r of rows){
-      await supabase.from('stylist_schedules').upsert({stylist_id:stylistId,day_of_week:r.dow,active:r.active,start_time:r.start_time,end_time:r.end_time},{onConflict:'stylist_id,day_of_week'})
+      await supabase.from('stylist_schedules').upsert({stylist_id:stylistId,day_of_week:r.dow,active:r.active,start_time:r.start_time,end_time:r.end_time,break_start:r.hasBreak&&r.break_start?r.break_start:null,break_end:r.hasBreak&&r.break_end?r.break_end:null},{onConflict:'stylist_id,day_of_week'})
     }
     setSaving(false);setMsg('✅ Horario guardado')
     onSaved()
@@ -1248,7 +1489,7 @@ function MyScheduleView({stylistId,onSaved}){
   if(!loaded)return<Sp/>
   return<div>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:22}}>
-      <div><h1 style={{fontSize:24,fontWeight:900}}>Mi horario</h1><p style={{fontSize:13,color:'var(--text3)'}}>Configura los días y horas en que estás disponible</p></div>
+      <div><h1 style={{fontSize:24,fontWeight:900}}>Mi horario</h1><p style={{fontSize:13,color:'var(--text3)'}}>Configura los días, horas y descansos en que estás disponible</p></div>
       <div style={{display:'flex',alignItems:'center',gap:10}}>
         {msg&&<span style={{fontSize:13,fontWeight:600,color:'var(--green)'}}>{msg}</span>}
         <Btn onClick={save} disabled={saving}>{saving?'Guardando...':'Guardar cambios'}</Btn>
@@ -1263,15 +1504,29 @@ function MyScheduleView({stylistId,onSaved}){
             </div>
             <span style={{fontSize:14,fontWeight:700,minWidth:90,color:r.active?'var(--text)':'var(--text3)'}}>{r.label}</span>
           </button>
-          {r.active&&<div style={{display:'flex',alignItems:'center',gap:6}}>
-            <select value={r.start_time} onChange={e=>upd(r.dow,'start_time',e.target.value)} style={{padding:'6px 28px 6px 10px',fontSize:13,border:'1.5px solid var(--border2)',borderRadius:8,background:'var(--white)',color:'var(--text)',fontFamily:'inherit',backgroundImage:"url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239B8FBF' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E\")",backgroundRepeat:'no-repeat',backgroundPosition:'right 8px center',cursor:'pointer'}}>
-              {TIME_OPTS.map(h=><option key={h} value={h}>{h}</option>)}
-            </select>
-            <span style={{fontSize:12,color:'var(--text3)',fontWeight:600}}>→</span>
-            <select value={r.end_time} onChange={e=>upd(r.dow,'end_time',e.target.value)} style={{padding:'6px 28px 6px 10px',fontSize:13,border:'1.5px solid var(--border2)',borderRadius:8,background:'var(--white)',color:'var(--text)',fontFamily:'inherit',backgroundImage:"url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239B8FBF' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E\")",backgroundRepeat:'no-repeat',backgroundPosition:'right 8px center',cursor:'pointer'}}>
-              {TIME_OPTS.map(h=><option key={h} value={h}>{h}</option>)}
-            </select>
-          </div>}
+          {r.active&&<>
+            <div style={{display:'flex',alignItems:'center',gap:6}}>
+              <select value={r.start_time} onChange={e=>upd(r.dow,'start_time',e.target.value)} style={{padding:'6px 28px 6px 10px',fontSize:13,border:'1.5px solid var(--border2)',borderRadius:8,background:'var(--white)',color:'var(--text)',fontFamily:'inherit',backgroundImage:"url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239B8FBF' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E\")",backgroundRepeat:'no-repeat',backgroundPosition:'right 8px center',cursor:'pointer'}}>
+                {TIME_OPTS.map(h=><option key={h} value={h}>{h}</option>)}
+              </select>
+              <span style={{fontSize:12,color:'var(--text3)',fontWeight:600}}>→</span>
+              <select value={r.end_time} onChange={e=>upd(r.dow,'end_time',e.target.value)} style={{padding:'6px 28px 6px 10px',fontSize:13,border:'1.5px solid var(--border2)',borderRadius:8,background:'var(--white)',color:'var(--text)',fontFamily:'inherit',backgroundImage:"url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239B8FBF' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E\")",backgroundRepeat:'no-repeat',backgroundPosition:'right 8px center',cursor:'pointer'}}>
+                {TIME_OPTS.map(h=><option key={h} value={h}>{h}</option>)}
+              </select>
+            </div>
+            <button onClick={()=>upd(r.dow,'hasBreak',!r.hasBreak)} style={{display:'flex',alignItems:'center',gap:5,padding:'5px 11px',borderRadius:7,border:`1.5px solid ${r.hasBreak?'var(--orange)':'var(--border2)'}`,background:r.hasBreak?'var(--orange-bg)':'var(--white)',cursor:'pointer',fontSize:12,fontWeight:700,color:r.hasBreak?'var(--orange)':'var(--text3)',fontFamily:'inherit',transition:'all .15s'}}>
+              ☕ {r.hasBreak?'Break':'+ Break'}
+            </button>
+            {r.hasBreak&&<div style={{display:'flex',alignItems:'center',gap:6}}>
+              <select value={r.break_start} onChange={e=>upd(r.dow,'break_start',e.target.value)} style={{padding:'6px 28px 6px 10px',fontSize:13,border:'1.5px solid var(--border2)',borderRadius:8,background:'var(--white)',color:'var(--text)',fontFamily:'inherit',backgroundImage:"url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239B8FBF' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E\")",backgroundRepeat:'no-repeat',backgroundPosition:'right 8px center',cursor:'pointer'}}>
+                {TIME_OPTS.map(h=><option key={h} value={h}>{h}</option>)}
+              </select>
+              <span style={{fontSize:12,color:'var(--text3)',fontWeight:600}}>→</span>
+              <select value={r.break_end} onChange={e=>upd(r.dow,'break_end',e.target.value)} style={{padding:'6px 28px 6px 10px',fontSize:13,border:'1.5px solid var(--border2)',borderRadius:8,background:'var(--white)',color:'var(--text)',fontFamily:'inherit',backgroundImage:"url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%239B8FBF' stroke-width='2'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E\")",backgroundRepeat:'no-repeat',backgroundPosition:'right 8px center',cursor:'pointer'}}>
+                {TIME_OPTS.map(h=><option key={h} value={h}>{h}</option>)}
+              </select>
+            </div>}
+          </>}
           {!r.active&&<span style={{fontSize:13,color:'var(--text3)',fontWeight:500}}>No disponible</span>}
         </div>
       </div>)}
@@ -1280,10 +1535,10 @@ function MyScheduleView({stylistId,onSaved}){
 }
 
 // ═══ SALON SCHEDULE ═══
-const DAYS_ES=[{dow:1,label:'Lunes'},{dow:2,label:'Martes'},{dow:3,label:'Miércoles'},{dow:4,label:'Jueves'},{dow:5,label:'Viernes'},{dow:6,label:'Sábado'}]
+const DAYS_ES=[{dow:1,label:'Lunes'},{dow:2,label:'Martes'},{dow:3,label:'Miércoles'},{dow:4,label:'Jueves'},{dow:5,label:'Viernes'},{dow:6,label:'Sábado'},{dow:0,label:'Domingo'}]
 const TIME_OPTS=gS('07:00','22:30')
 
-function SalonScheduleView({schedule,onSaved}){
+function SalonScheduleView({schedule,onSaved,closures=[],onAddClosure,onDelClosure}){
   const[rows,setRows]=useState(()=>{
     const base=DAYS_ES.map(({dow,label})=>{
       const s=schedule.find(x=>x.day_of_week===dow)
@@ -1292,6 +1547,9 @@ function SalonScheduleView({schedule,onSaved}){
     return base
   })
   const[saving,setSaving]=useState(false),[msg,setMsg]=useState('')
+  const[cShow,setCShow]=useState(false),[cSd,setCSd]=useState(toK(new Date())),[cEd,setCEd]=useState(toK(new Date())),[cR,setCR]=useState('')
+  const today=toK(new Date())
+  const upcomingClosures=closures.filter(c=>c.end_date>=today).sort((a,b)=>a.start_date.localeCompare(b.start_date))
 
   const upd=(dow,field,val)=>setRows(r=>r.map(x=>x.dow===dow?{...x,[field]:val}:x))
 
@@ -1358,6 +1616,26 @@ function SalonScheduleView({schedule,onSaved}){
         </div>
       </div>)}
     </div>
+    <div style={{marginTop:28}}>
+      <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+        <div><h2 style={{fontSize:18,fontWeight:900}}>Días de cierre / festivos</h2><p style={{fontSize:13,color:'var(--text3)'}}>El centro cierra para todos los profesionales en estas fechas</p></div>
+        <Btn small onClick={()=>setCShow(true)}>+ Añadir cierre</Btn>
+      </div>
+      <div style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',boxShadow:'var(--shadow)',overflow:'hidden'}}>
+        {upcomingClosures.length===0?<div style={{padding:24,textAlign:'center',color:'var(--text3)'}}>Sin cierres programados</div>:
+          upcomingClosures.map((c,i)=><div key={c.id} style={{display:'flex',alignItems:'center',gap:12,padding:'12px 20px',borderBottom:i<upcomingClosures.length-1?'1px solid var(--border)':'none'}}>
+            <div style={{width:36,height:36,borderRadius:9,background:'var(--red-bg)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:15}}>🚪</div>
+            <div style={{flex:1}}><div style={{fontSize:14,fontWeight:600}}>{c.reason||'Cerrado'}</div><div style={{fontSize:12,color:'var(--text3)'}}>{c.start_date===c.end_date?fS(new Date(c.start_date+'T12:00')):`${fS(new Date(c.start_date+'T12:00'))} – ${fS(new Date(c.end_date+'T12:00'))}`}</div></div>
+            <Btn small variant="danger" onClick={()=>onDelClosure(c.id)}>Quitar</Btn>
+          </div>)}
+      </div>
+    </div>
+    {cShow&&<Modal onClose={()=>setCShow(false)}>
+      <h3 style={{fontSize:18,fontWeight:900,marginBottom:16}}>Nuevo cierre</h3>
+      <div style={{display:'flex',gap:8}}><div style={{flex:1}}><Inp label="Desde" type="date" value={cSd} onChange={e=>setCSd(e.target.value)}/></div><div style={{flex:1}}><Inp label="Hasta" type="date" value={cEd} onChange={e=>setCEd(e.target.value)}/></div></div>
+      <Inp label="Motivo (opcional)" value={cR} onChange={e=>setCR(e.target.value)} placeholder="Ej: Navidad"/>
+      <div style={{display:'flex',gap:8,marginTop:6}}><Btn variant="secondary" onClick={()=>setCShow(false)} style={{flex:1}}>Cancelar</Btn><Btn disabled={cEd<cSd} onClick={()=>{onAddClosure({start_date:cSd,end_date:cEd,reason:cR||null});setCShow(false);setCR('')}} style={{flex:1}}>Guardar</Btn></div>
+    </Modal>}
   </div>
 }
 
@@ -1368,9 +1646,13 @@ export default function App(){
   const[salonSchedule,setSalonSchedule]=useState([])
   const[allProfiles,setAllProfiles]=useState([])
   const[dashFees,setDashFees]=useState([])
+  const[timeOff,setTimeOff]=useState([])
+  const[closures,setClosures]=useState([])
+  const[schedules,setSchedules]=useState([])
+  const[overrides,setOverrides]=useState([])
 
   const loadAll=useCallback(async()=>{
-    const[{data:a},{data:st},{data:sv},{data:bl},{data:ex},{data:ss},{data:allP},{data:sf}]=await Promise.all([
+    const[{data:a},{data:st},{data:sv},{data:bl},{data:ex},{data:ss},{data:allP},{data:sf},{data:to},{data:cl},{data:sch},{data:ov}]=await Promise.all([
       supabase.from('appointments').select('*').order('appointment_date',{ascending:false}).limit(1000),
       supabase.from('stylists').select('*').order('display_order'),
       supabase.from('services').select('*').order('display_order'),
@@ -1379,8 +1661,13 @@ export default function App(){
       supabase.from('salon_schedule').select('*').order('day_of_week'),
       supabase.from('profiles').select('id,full_name,phone,role,stylist_id').order('full_name'),
       supabase.from('student_fees').select('stylist_id,year,month,amount_paid,amount_due'),
+      supabase.from('time_off').select('*,stylists(name)').order('start_date',{ascending:false}),
+      supabase.from('salon_closures').select('*').order('start_date',{ascending:false}),
+      supabase.from('stylist_schedules').select('*'),
+      supabase.from('schedule_overrides').select('*'),
     ])
     setAppts(a||[]);setStylists(st||[]);setServices(sv||[]);setBlocks(bl||[]);setExpenses(ex||[]);setSalonSchedule(ss||[]);setDashFees(sf||[])
+    setTimeOff(to||[]);setClosures(cl||[]);setSchedules(sch||[]);setOverrides(ov||[])
     const arr=allP||[]
     setAllProfiles(arr)
     const m={};arr.forEach(pr=>{m[pr.id]=pr});setProfiles(m)
@@ -1409,7 +1696,23 @@ export default function App(){
   const linkProfile=async(stylistId,profileId)=>{await supabase.from('profiles').update({role:'barber',stylist_id:stylistId}).eq('id',profileId);loadAll()}
   const unlinkProfile=async(profileId)=>{await supabase.from('profiles').update({role:'user',stylist_id:null}).eq('id',profileId);loadAll()}
 
-  const D={appts,profiles,stylists,services,blocks,expenses,allProfiles,dashFees}
+  const addTimeOff=async rows=>{await supabase.from('time_off').insert(rows.map(r=>({...r,created_by:user.id})));loadAll()}
+  const delTimeOff=async id=>{await supabase.from('time_off').delete().eq('id',id);loadAll()}
+  const approveTimeOff=async id=>{await supabase.from('time_off').update({approved:true}).eq('id',id);loadAll()}
+  const addClosure=async d=>{await supabase.from('salon_closures').insert(d);loadAll()}
+  const delClosure=async id=>{await supabase.from('salon_closures').delete().eq('id',id);loadAll()}
+  const saveShiftRecurring=async(stylistId,dow,vals,clearDate)=>{
+    await supabase.from('stylist_schedules').upsert({stylist_id:stylistId,day_of_week:dow,...vals},{onConflict:'stylist_id,day_of_week'})
+    // al fijar el recurrente, borra la excepción de esa fecha para no dejar contradicciones
+    if(clearDate) await supabase.from('schedule_overrides').delete().eq('stylist_id',stylistId).eq('override_date',clearDate)
+    loadAll()
+  }
+  const saveShiftOverride=async(stylistId,date,vals)=>{
+    await supabase.from('schedule_overrides').upsert({stylist_id:stylistId,override_date:date,...vals},{onConflict:'stylist_id,override_date'})
+    loadAll()
+  }
+
+  const D={appts,profiles,stylists,services,blocks,expenses,allProfiles,dashFees,timeOff,closures,schedules,overrides,salonSchedule}
   const isMainAdmin=profile?.role==='admin'
   const myStyId=profile?.stylist_id||null
   const myStyName=stylists.find(s=>s.id===myStyId)?.name||null
@@ -1427,11 +1730,12 @@ export default function App(){
       {page==='finance'&&isMainAdmin&&<FacturacionView data={D} onAddExpense={addExpense} onDelExpense={delExpense}/>}
       {page==='barbers'&&isMainAdmin&&<BarberStats data={D}/>}
       {page==='clients'&&isMainAdmin&&<ClientsView data={D}/>}
-      {page==='team'&&isMainAdmin&&<TeamView data={D} onSave={saveSty} onDel={delSty} onLink={linkProfile} onUnlink={unlinkProfile}/>}
+      {page==='personal'&&isMainAdmin&&<PersonalView data={D} onSaveSty={saveSty} onDelSty={delSty} onLink={linkProfile} onUnlink={unlinkProfile} onAddTimeOff={addTimeOff} onDelTimeOff={delTimeOff} onApproveTimeOff={approveTimeOff} onSaveRecurring={saveShiftRecurring} onSaveOverride={saveShiftOverride}/>}
+      {page==='timeoff'&&!isMainAdmin&&<MyAbsencesView data={D} stylistId={myStyId} onAdd={addTimeOff} onDel={delTimeOff}/>}
       {page==='services'&&isMainAdmin&&<ServicesView data={D} onSave={saveSvc} onDel={delSvc}/>}
       {page==='blocks'&&<BlocksView data={D} onAdd={addBlock} onDel={rmBlock} lockedStylistId={isMainAdmin?null:myStyId}/>}
       {page==='schedule'&&(isMainAdmin
-        ?<SalonScheduleView schedule={salonSchedule} onSaved={loadAll}/>
+        ?<SalonScheduleView schedule={salonSchedule} onSaved={loadAll} closures={closures} onAddClosure={addClosure} onDelClosure={delClosure}/>
         :<MyScheduleView stylistId={myStyId} onSaved={loadAll}/>
       )}
     </main>
