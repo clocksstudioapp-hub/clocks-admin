@@ -49,10 +49,12 @@ const normName=s=>s.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g,''
 const daysForCount=n=>n<=1?7:n<=2?5:n<=3?3:n<=4?2:1
 const alvaroEffDur=(sty,svc)=>{if(!sty||!svc)return svc?.duration||30;const isA=normName(sty.name||'').includes('alvaro');const isQ=normName(svc.name||'').includes('corte')||normName(svc.name||'').includes('barba');return(isA&&isQ)?30:svc.duration}
 const BOOKING_API_URL=import.meta.env.VITE_BOOKING_API_URL||'https://clocks-school-app.vercel.app'
-// fire-and-forget: el email no debe bloquear ni romper el movimiento
-const notifyMoved=appointmentId=>{
+// fire-and-forget: el email no debe bloquear ni romper el movimiento.
+// Enviamos el JWT del staff para que el endpoint autorice (SEC-001).
+const notifyMoved=async appointmentId=>{
   if(!BOOKING_API_URL)return
-  fetch(`${BOOKING_API_URL}/api/send-moved`,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({appointmentId})}).catch(()=>{})
+  const{data:{session}}=await supabase.auth.getSession()
+  fetch(`${BOOKING_API_URL}/api/send-moved`,{method:'POST',headers:{'Content-Type':'application/json',...(session?.access_token?{Authorization:`Bearer ${session.access_token}`}:{})},body:JSON.stringify({appointmentId})}).catch(()=>{})
 }
 const PLANS=[{id:'iniciacion',label:'Iniciación',color:'var(--blue)',bg:'var(--blue-bg)'},{id:'perfeccionamiento',label:'Perfeccionamiento',color:'var(--purple)',bg:'var(--purple-bg)'}]
 
@@ -327,7 +329,7 @@ function MoveApptModal({data,appt,onSave,onClose}){
       stylist_id:Number(styId)
     }).eq('id',appt.id)
     setSaving(false)
-    if(error){setErr(error.code==='23505'?'Ese hueco ya está ocupado por otra cita':(error.message||'Error al mover la cita'));return}
+    if(error){setErr((error.code==='23505'||/SLOT_TAKEN|disponible/i.test(error.message||''))?'Ese hueco ya está ocupado por otra cita':(error.message||'Error al mover la cita'));return}
     if(appt.user_id)notifyMoved(appt.id)
     onSave&&onSave();onClose()
   }
@@ -463,7 +465,7 @@ function CalendarView({data,onCancel,onApptAdded,onAddBlock,salonSchedule=[],loc
   }
   const commitMove=async m=>{
     const{error}=await supabase.from('appointments').update({appointment_date:m.date,appointment_time:m.time,end_time:m.endTime,stylist_id:m.styId}).eq('id',m.appt.id)
-    if(error){setMoveConfirm(c=>c?{...c,err:error.code==='23505'?'Ese hueco ya está ocupado por otra cita':(error.message||'Error al mover la cita')}:null);return}
+    if(error){setMoveConfirm(c=>c?{...c,err:(error.code==='23505'||/SLOT_TAKEN|disponible/i.test(error.message||''))?'Ese hueco ya está ocupado por otra cita':(error.message||'Error al mover la cita')}:null);return}
     if(m.appt.user_id)notifyMoved(m.appt.id)
     onApptAdded&&onApptAdded()
     setMoveConfirm(null)
@@ -1787,7 +1789,7 @@ export default function App(){
   },[loadAll])
 
   const handleLogin=async u=>{setUser(u);const{data:prof}=await supabase.from('profiles').select('*').eq('id',u.id).single();if(!checkRole(prof?.role)){setView('denied');return}setProfile(prof);setView('app');loadAll()}
-  const cancelAppt=async id=>{await supabase.from('appointments').update({status:'cancelled',cancelled_by:'admin'}).eq('id',id);loadAll()}
+  const cancelAppt=async id=>{const{error}=await supabase.from('appointments').update({status:'cancelled',cancelled_by:'admin'}).eq('id',id);if(error){alert('No se pudo cancelar la cita. Inténtalo de nuevo.');return}loadAll()}
   const addBlock=async d=>{await supabase.from('blocked_slots').insert({...d,created_by:user.id});loadAll()}
   const rmBlock=async id=>{await supabase.from('blocked_slots').delete().eq('id',id);loadAll()}
   const saveSvc=async d=>{if(d.id){await supabase.from('services').update({name:d.name,description:d.description,duration:d.duration,price:d.price,category:d.category}).eq('id',d.id)}else{const mx=services.reduce((m,s)=>Math.max(m,s.display_order||0),0);await supabase.from('services').insert({...d,display_order:mx+1,active:true})}loadAll()}
