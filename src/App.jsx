@@ -124,7 +124,7 @@ function MonthRangePicker({from,to,onChange}){
 // ═══ SIDEBAR ═══
 function Sidebar({active,onNav,isMainAdmin,stylistName}){
   const[imgOk,setImgOk]=useState(true)
-  const adminItems=[{id:'dash',label:'Dashboard',icon:'📊'},{id:'cal',label:'Calendario',icon:'📅'},{id:'finance',label:'Facturación',icon:'🧾'},{id:'barbers',label:'Barberos',icon:'📈'},{id:'clients',label:'Clientes',icon:'👥'},{id:'personal',label:'Personal',icon:'👥'},{id:'services',label:'Servicios',icon:'✂️'},{id:'blocks',label:'Bloqueos',icon:'🚫'},{id:'schedule',label:'Horario salón',icon:'🕐'}]
+  const adminItems=[{id:'dash',label:'Dashboard',icon:'📊'},{id:'cal',label:'Calendario',icon:'📅'},{id:'finance',label:'Facturación',icon:'🧾'},{id:'barbers',label:'Barberos',icon:'📈'},{id:'clients',label:'Clientes',icon:'👥'},{id:'personal',label:'Personal',icon:'👥'},{id:'cfjuventud',label:'CF Juventud',icon:'⚽'},{id:'services',label:'Servicios',icon:'✂️'},{id:'blocks',label:'Bloqueos',icon:'🚫'},{id:'schedule',label:'Horario salón',icon:'🕐'}]
   const barberItems=[{id:'cal',label:'Mi calendario',icon:'📅'},{id:'schedule',label:'Mi horario',icon:'🕐'},{id:'blocks',label:'Mis bloqueos',icon:'🚫'},{id:'timeoff',label:'Mis ausencias',icon:'🌴'}]
   const items=isMainAdmin?adminItems:barberItems
   return<div style={{width:'var(--sidebar-w)',background:'var(--white)',borderRight:'1.5px solid var(--border)',height:'100vh',position:'fixed',left:0,top:0,display:'flex',flexDirection:'column',zIndex:10,boxShadow:'2px 0 12px rgba(105,107,198,0.06)'}}>
@@ -1512,6 +1512,101 @@ function StyModal({d,onSave,onClose}){
   return<Modal onClose={onClose}><h3 style={{fontSize:18,fontWeight:900,marginBottom:16}}>{d.id?'Editar':'Nuevo'} profesional</h3><Inp label="Nombre" required value={n} onChange={e=>sN(e.target.value)}/><Inp label="Username" value={u} onChange={e=>sU(e.target.value)} placeholder="@user"/><Inp label="Rol" value={r} onChange={e=>sR(e.target.value)}/><Inp label="URL foto" value={p} onChange={e=>sP(e.target.value)} placeholder="/images/team-nombre.jpg"/>{p&&<div style={{marginBottom:10,width:50,height:50,borderRadius:10,overflow:'hidden',background:'var(--bg)'}}><img src={p} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/></div>}<div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}><span style={{fontSize:13}}>Activo</span><button onClick={()=>sA(!a)} style={{width:40,height:22,borderRadius:11,border:'none',cursor:'pointer',background:a?'var(--purple)':'var(--border)',position:'relative',transition:'all .3s'}}><div style={{width:18,height:18,borderRadius:9,background:'#fff',position:'absolute',top:2,left:a?20:2,transition:'all .3s',boxShadow:'0 1px 2px rgba(0,0,0,0.15)'}}/></button></div>{err&&<div style={{padding:'10px 12px',background:'var(--red-bg)',border:'1px solid rgba(220,38,38,0.2)',borderRadius:9,marginBottom:12,fontSize:13,color:'var(--red)',fontWeight:600}}>⚠️ {err}</div>}<div style={{display:'flex',gap:8}}><Btn variant="secondary" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={submit} disabled={saving||!n.trim()} style={{flex:1}}>{saving?'Guardando...':'Guardar'}</Btn></div></Modal>
 }
 
+// ═══ CF JUVENTUD ═══
+const monthRangeAdmin=d=>{const y=d.getFullYear(),m=d.getMonth();return[toK(new Date(y,m,1)),toK(new Date(y,m+1,0))]}
+
+function CFJuventudView({data,onChanged}){
+  const{allProfiles=[],cfTeams=[],cfService}=data
+  const players=allProfiles.filter(p=>p.role==='player')
+  const[redeemedIds,setRedeemedIds]=useState(new Set())
+  const[ld,setLd]=useState(true)
+  const[search,setSearch]=useState('')
+  const[editTeam,setEditTeam]=useState(null)
+
+  useEffect(()=>{
+    if(!cfService){setLd(false);return}
+    const[from,to]=monthRangeAdmin(new Date())
+    supabase.from('appointments').select('user_id').eq('service_id',cfService.id).eq('status','confirmed').gte('appointment_date',from).lte('appointment_date',to)
+      .then(({data:red})=>{setRedeemedIds(new Set((red||[]).map(r=>r.user_id)));setLd(false)})
+  },[cfService])
+
+  const filtered=search?players.filter(p=>p.full_name?.toLowerCase().includes(search.toLowerCase())):players
+
+  const saveTeam=async d=>{
+    if(d.id)await supabase.from('cf_teams').update({name:d.name,active:d.active}).eq('id',d.id)
+    else{const mx=cfTeams.reduce((m,t)=>Math.max(m,t.display_order||0),0);await supabase.from('cf_teams').insert({name:d.name,active:d.active,display_order:mx+1})}
+    setEditTeam(null);onChanged()
+  }
+  const delTeam=async id=>{await supabase.from('cf_teams').delete().eq('id',id);onChanged()}
+
+  const handleExport=()=>{
+    const rows=players.map(p=>({Jugador:p.full_name||'—',Telefono:p.phone||'—',Equipo:cfTeams.find(t=>t.id===p.team_id)?.name||'—',Estado:redeemedIds.has(p.id)?'Usado este mes':'Disponible'}))
+    if(rows.length>0)exportCSV(rows,'cf_juventud_jugadores')
+  }
+
+  if(ld)return<Sp/>
+
+  return<div>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
+      <div><h1 style={{fontSize:24,fontWeight:900}}>CF Juventud</h1><p style={{fontSize:14,color:'var(--text3)'}}>{players.length} jugadores registrados</p></div>
+      <div style={{display:'flex',gap:8}}>
+        <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar jugador..." style={{padding:'8px 14px',fontSize:13,border:'1.5px solid var(--border2)',borderRadius:9,background:'var(--white)',fontFamily:'inherit',width:220}}/>
+        <Btn small variant="secondary" onClick={handleExport}>📥 Exportar CSV</Btn>
+      </div>
+    </div>
+
+    <div style={{display:'flex',gap:14,marginBottom:20,flexWrap:'wrap'}}>
+      <Stat label="Jugadores" value={players.length} icon="⚽"/>
+      <Stat label="Cortes usados este mes" value={players.filter(p=>redeemedIds.has(p.id)).length} icon="✂️" color="var(--orange)" bg="var(--orange-bg)"/>
+      <Stat label="Disponibles" value={players.filter(p=>!redeemedIds.has(p.id)).length} icon="✓" color="var(--green)" bg="var(--green-bg)"/>
+    </div>
+
+    <div style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',boxShadow:'var(--shadow)',overflow:'hidden',marginBottom:28}}>
+      <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 140px',padding:'10px 20px',borderBottom:'1.5px solid var(--border)',background:'var(--bg)'}}>
+        {['Jugador','Equipo','Estado del mes'].map(h=><div key={h} style={{fontSize:11,fontWeight:700,color:'var(--text3)',textTransform:'uppercase',letterSpacing:'0.05em'}}>{h}</div>)}
+      </div>
+      {filtered.length===0?<div style={{padding:30,textAlign:'center',color:'var(--text3)'}}>Sin jugadores</div>:
+      filtered.map(p=><div key={p.id} style={{display:'grid',gridTemplateColumns:'2fr 1fr 140px',padding:'12px 20px',borderBottom:'1px solid var(--border)',alignItems:'center'}}>
+        <div style={{fontSize:14,fontWeight:500}}>{p.full_name||'Sin nombre'}</div>
+        <div style={{fontSize:13,color:'var(--text2)'}}>{cfTeams.find(t=>t.id===p.team_id)?.name||'—'}</div>
+        {redeemedIds.has(p.id)
+          ?<span style={{fontSize:11,fontWeight:700,color:'var(--text3)',background:'var(--bg)',padding:'3px 10px',borderRadius:8,width:'fit-content'}}>Usado</span>
+          :<span style={{fontSize:11,fontWeight:700,color:'var(--green)',background:'var(--green-bg)',padding:'3px 10px',borderRadius:8,width:'fit-content'}}>Disponible</span>}
+      </div>)}
+    </div>
+
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
+      <h2 style={{fontSize:18,fontWeight:900}}>Equipos</h2>
+      <Btn small onClick={()=>setEditTeam({name:'',active:true})}>+ Añadir equipo</Btn>
+    </div>
+    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:10}}>
+      {cfTeams.map(t=><div key={t.id} style={{display:'flex',alignItems:'center',gap:8,padding:'10px 14px',background:'var(--white)',border:'1.5px solid var(--border)',borderRadius:10,opacity:t.active?1:0.5}}>
+        <span style={{flex:1,fontSize:13,fontWeight:600}}>{t.name}</span>
+        <Btn small variant="secondary" onClick={()=>setEditTeam(t)}>Editar</Btn>
+      </div>)}
+    </div>
+
+    {editTeam&&<CfTeamModal data={editTeam} onSave={saveTeam} onDelete={editTeam.id?()=>{delTeam(editTeam.id);setEditTeam(null)}:null} onClose={()=>setEditTeam(null)}/>}
+  </div>
+}
+
+function CfTeamModal({data,onSave,onDelete,onClose}){
+  const[name,setName]=useState(data.name||''),[active,setActive]=useState(data.active!==false)
+  return<Modal onClose={onClose}>
+    <h3 style={{fontSize:18,fontWeight:900,marginBottom:16}}>{data.id?'Editar equipo':'Nuevo equipo'}</h3>
+    <Inp label="Nombre" required value={name} onChange={e=>setName(e.target.value)} placeholder="Ej: Alevín A"/>
+    <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}>
+      <span style={{fontSize:13}}>Activo</span>
+      <button onClick={()=>setActive(!active)} style={{width:40,height:22,borderRadius:11,border:'none',cursor:'pointer',background:active?'var(--purple)':'var(--border)',position:'relative',transition:'all .3s'}}><div style={{width:18,height:18,borderRadius:9,background:'#fff',position:'absolute',top:2,left:active?20:2,transition:'all .3s',boxShadow:'0 1px 2px rgba(0,0,0,0.15)'}}/></button>
+    </div>
+    <div style={{display:'flex',gap:8}}>
+      <Btn variant="secondary" onClick={onClose} style={{flex:1}}>Cancelar</Btn>
+      {onDelete&&<Btn variant="danger" onClick={onDelete}>Eliminar</Btn>}
+      <Btn onClick={()=>onSave({...data,name,active})} disabled={!name.trim()} style={{flex:1}}>Guardar</Btn>
+    </div>
+  </Modal>
+}
+
 // ═══ SERVICES CRUD ═══
 function ServicesView({data,onSave,onDel}){
   const[edit,setEdit]=useState(null),[del,setDel]=useState(null)
@@ -1757,24 +1852,29 @@ export default function App(){
   const[closures,setClosures]=useState([])
   const[schedules,setSchedules]=useState([])
   const[overrides,setOverrides]=useState([])
+  const[cfTeams,setCfTeams]=useState([])
+  const[cfService,setCfService]=useState(null)
 
   const loadAll=useCallback(async()=>{
-    const[{data:a},{data:st},{data:sv},{data:bl},{data:ex},{data:ss},{data:allP},{data:sf},{data:to},{data:cl},{data:sch},{data:ov}]=await Promise.all([
+    const[{data:a},{data:st},{data:sv},{data:bl},{data:ex},{data:ss},{data:allP},{data:sf},{data:to},{data:cl},{data:sch},{data:ov},{data:tm},{data:cfsv}]=await Promise.all([
       supabase.from('appointments').select('*').order('appointment_date',{ascending:false}).limit(1000),
       supabase.from('stylists').select('*').order('display_order'),
       supabase.from('services').select('*').order('display_order'),
       supabase.from('blocked_slots').select('*,stylists(name)').order('blocked_date',{ascending:false}),
       supabase.from('expenses').select('*').order('expense_date',{ascending:false}).limit(500),
       supabase.from('salon_schedule').select('*').order('day_of_week'),
-      supabase.from('profiles').select('id,full_name,phone,role,stylist_id').order('full_name'),
+      supabase.from('profiles').select('id,full_name,phone,role,stylist_id,team_id').order('full_name'),
       supabase.from('student_fees').select('stylist_id,year,month,amount_paid,amount_due'),
       supabase.from('time_off').select('*,stylists(name)').order('start_date',{ascending:false}),
       supabase.from('salon_closures').select('*').order('start_date',{ascending:false}),
       supabase.from('stylist_schedules').select('*'),
       supabase.from('schedule_overrides').select('*'),
+      supabase.from('cf_teams').select('*').order('display_order'),
+      supabase.from('services').select('*').eq('player_only',true).maybeSingle(),
     ])
     setAppts(a||[]);setStylists(st||[]);setServices(sv||[]);setBlocks(bl||[]);setExpenses(ex||[]);setSalonSchedule(ss||[]);setDashFees(sf||[])
     setTimeOff(to||[]);setClosures(cl||[]);setSchedules(sch||[]);setOverrides(ov||[])
+    setCfTeams(tm||[]);setCfService(cfsv||null)
     const arr=allP||[]
     setAllProfiles(arr)
     const m={};arr.forEach(pr=>{m[pr.id]=pr});setProfiles(m)
@@ -1819,7 +1919,7 @@ export default function App(){
     loadAll()
   }
 
-  const D={appts,profiles,stylists,services,blocks,expenses,allProfiles,dashFees,timeOff,closures,schedules,overrides,salonSchedule}
+  const D={appts,profiles,stylists,services,blocks,expenses,allProfiles,dashFees,timeOff,closures,schedules,overrides,salonSchedule,cfTeams,cfService}
   const isMainAdmin=profile?.role==='admin'
   const myStyId=profile?.stylist_id||null
   const myStyName=stylists.find(s=>s.id===myStyId)?.name||null
@@ -1838,6 +1938,7 @@ export default function App(){
       {page==='barbers'&&isMainAdmin&&<BarberStats data={D}/>}
       {page==='clients'&&isMainAdmin&&<ClientsView data={D}/>}
       {page==='personal'&&isMainAdmin&&<PersonalView data={D} onSaveSty={saveSty} onDelSty={delSty} onLink={linkProfile} onUnlink={unlinkProfile} onAddTimeOff={addTimeOff} onDelTimeOff={delTimeOff} onApproveTimeOff={approveTimeOff} onSaveRecurring={saveShiftRecurring} onSaveOverride={saveShiftOverride}/>}
+      {page==='cfjuventud'&&isMainAdmin&&<CFJuventudView data={D} onChanged={loadAll}/>}
       {page==='timeoff'&&!isMainAdmin&&<MyAbsencesView data={D} stylistId={myStyId} onAdd={addTimeOff} onDel={delTimeOff}/>}
       {page==='services'&&isMainAdmin&&<ServicesView data={D} onSave={saveSvc} onDel={delSvc}/>}
       {page==='blocks'&&<BlocksView data={D} onAdd={addBlock} onDel={rmBlock} lockedStylistId={isMainAdmin?null:myStyId}/>}
