@@ -3,25 +3,24 @@ import { supabase } from './supabase'
 
 // ═══ CSS  ═══
 const CSS = `
-@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800;900&display=swap');
 :root{
-  --bg:#F5F3FF;--white:#FFF;--border:#E5E0FF;--border2:#C9BFFF;
-  --text:#1A0A3B;--text2:#5B4B8A;--text3:#9B8FBF;
-  --purple:#6D28D9;--purple2:#5B21B6;--purple-l:#7C3AED;
-  --purple-bg:rgba(109,40,217,0.07);--purple-bg2:rgba(109,40,217,0.14);
-  --purple-grad:linear-gradient(135deg,#6D28D9,#A855F7);
+  --bg:#F7F7FD;--white:#FFF;--border:#E3E3F5;--border2:#C3C3E6;
+  --text:#2D2D2F;--text2:#5B4B8A;--text3:#9B8FBF;
+  --purple:#696BC6;--purple2:#4A4C93;--purple-l:#8B8DD9;
+  --purple-bg:rgba(105,107,198,0.07);--purple-bg2:rgba(105,107,198,0.14);
+  --purple-grad:linear-gradient(135deg,#696BC6,#9294D6);
   --green:#16A34A;--green-bg:rgba(22,163,74,0.08);
   --yellow:#CA8A04;--yellow-bg:rgba(202,138,4,0.08);
   --orange:#EA580C;--orange-bg:rgba(234,88,12,0.08);
   --red:#DC2626;--red-bg:rgba(220,38,38,0.07);
   --blue:#2563EB;--blue-bg:rgba(37,99,235,0.07);
-  --shadow:0 1px 4px rgba(109,40,217,0.08);
-  --shadow-md:0 4px 14px rgba(109,40,217,0.12);
-  --shadow-lg:0 8px 32px rgba(109,40,217,0.18);
+  --shadow:0 1px 4px rgba(105,107,198,0.08);
+  --shadow-md:0 4px 14px rgba(105,107,198,0.12);
+  --shadow-lg:0 8px 32px rgba(105,107,198,0.18);
   --sidebar-w:224px
 }
 *{margin:0;padding:0;box-sizing:border-box}
-body{background:var(--bg);color:var(--text);font-family:'DM Sans',system-ui,sans-serif;-webkit-font-smoothing:antialiased}
+body{background:var(--bg);color:var(--text);font-family:'Helvetica Neue',Helvetica,Arial,sans-serif;-webkit-font-smoothing:antialiased}
 input:focus,select:focus,textarea:focus{outline:none;border-color:var(--purple)!important;box-shadow:0 0 0 3px var(--purple-bg2)!important}
 ::-webkit-scrollbar{width:5px}::-webkit-scrollbar-thumb{background:var(--border2);border-radius:6px}
 @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
