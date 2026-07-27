@@ -58,7 +58,7 @@ const notifyMoved=async appointmentId=>{
 const PLANS=[{id:'iniciacion',label:'Iniciación',color:'var(--blue)',bg:'var(--blue-bg)'},{id:'perfeccionamiento',label:'Perfeccionamiento',color:'var(--purple)',bg:'var(--purple-bg)'}]
 
 const EXPENSE_CATS=[{id:'alquiler',label:'Alquiler',icon:'🏠'},{id:'productos',label:'Productos',icon:'🧴'},{id:'suministros',label:'Suministros',icon:'💡'},{id:'marketing',label:'Marketing',icon:'📣'},{id:'personal',label:'Personal',icon:'👤'},{id:'equipamiento',label:'Equipamiento',icon:'🪑'},{id:'general',label:'General',icon:'📦'},{id:'otro',label:'Otro',icon:'📝'}]
-const STY_COLORS=['#6D28D9','#EA580C','#0891B2','#CA8A04','#16A34A','#DB2777','#7C3AED','#DC2626']
+const STY_COLORS=['#696BC6','#EA580C','#0891B2','#CA8A04','#16A34A','#DB2777','#8B8DD9','#DC2626']
 
 const exportCSV=(rows,filename)=>{
   const header=Object.keys(rows[0]).join(';')
@@ -74,11 +74,11 @@ const Sp=()=><div style={{display:'flex',justifyContent:'center',padding:60}}><d
 
 function Btn({children,onClick,disabled,full,variant='primary',small,style:sx,...r}){
   const S={
-    primary:{bg:'var(--purple-grad)',c:'#fff',b:'none',sh:'0 2px 8px rgba(109,40,217,0.3)'},
+    primary:{bg:'var(--purple-grad)',c:'#fff',b:'none',sh:'0 2px 8px rgba(105,107,198,0.3)'},
     secondary:{bg:'var(--white)',c:'var(--text2)',b:'1.5px solid var(--border2)',sh:'none'},
     danger:{bg:'var(--red-bg)',c:'var(--red)',b:'1px solid rgba(220,38,38,0.18)',sh:'none'},
     ghost:{bg:'transparent',c:'var(--text2)',b:'none',sh:'none'}
-  }[variant]||{bg:'var(--purple-grad)',c:'#fff',b:'none',sh:'0 2px 8px rgba(109,40,217,0.3)'}
+  }[variant]||{bg:'var(--purple-grad)',c:'#fff',b:'none',sh:'0 2px 8px rgba(105,107,198,0.3)'}
   return<button onClick={disabled?undefined:onClick} style={{fontFamily:'inherit',fontSize:small?12:14,fontWeight:700,padding:small?'7px 13px':'10px 22px',width:full?'100%':'auto',color:disabled?'#aaa':S.c,background:disabled?'var(--border)':S.bg,border:S.b,borderRadius:9,cursor:disabled?'default':'pointer',boxShadow:disabled?'none':S.sh,transition:'all .15s',display:'inline-flex',alignItems:'center',justifyContent:'center',gap:6,...sx}}{...r}>{children}</button>
 }
 function Inp({label,required,...p}){return<div style={{marginBottom:13}}>{label&&<label style={{fontSize:12,fontWeight:600,color:'var(--text2)',marginBottom:5,display:'block',textTransform:'uppercase',letterSpacing:'0.04em'}}>{label}{required&&<span style={{color:'var(--red)'}}>*</span>}</label>}<input{...p}style={{width:'100%',padding:'10px 13px',fontSize:14,border:'1.5px solid var(--border2)',borderRadius:9,background:'var(--white)',color:'var(--text)',fontFamily:'inherit',...(p.style||{})}}/></div>}
@@ -124,10 +124,10 @@ function Sidebar({active,onNav,isMainAdmin,stylistName}){
   const adminItems=[{id:'dash',label:'Dashboard',icon:'📊'},{id:'cal',label:'Calendario',icon:'📅'},{id:'finance',label:'Facturación',icon:'🧾'},{id:'barbers',label:'Barberos',icon:'📈'},{id:'clients',label:'Clientes',icon:'👥'},{id:'personal',label:'Personal',icon:'👥'},{id:'services',label:'Servicios',icon:'✂️'},{id:'blocks',label:'Bloqueos',icon:'🚫'},{id:'schedule',label:'Horario salón',icon:'🕐'}]
   const barberItems=[{id:'cal',label:'Mi calendario',icon:'📅'},{id:'schedule',label:'Mi horario',icon:'🕐'},{id:'blocks',label:'Mis bloqueos',icon:'🚫'},{id:'timeoff',label:'Mis ausencias',icon:'🌴'}]
   const items=isMainAdmin?adminItems:barberItems
-  return<div style={{width:'var(--sidebar-w)',background:'var(--white)',borderRight:'1.5px solid var(--border)',height:'100vh',position:'fixed',left:0,top:0,display:'flex',flexDirection:'column',zIndex:10,boxShadow:'2px 0 12px rgba(109,40,217,0.06)'}}>
+  return<div style={{width:'var(--sidebar-w)',background:'var(--white)',borderRight:'1.5px solid var(--border)',height:'100vh',position:'fixed',left:0,top:0,display:'flex',flexDirection:'column',zIndex:10,boxShadow:'2px 0 12px rgba(105,107,198,0.06)'}}>
     <div style={{padding:'18px 16px',borderBottom:'1.5px solid var(--border)'}}>
       <div style={{display:'flex',alignItems:'center',gap:10}}>
-        <div style={{width:36,height:36,borderRadius:10,background:'var(--purple-grad)',display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden',flexShrink:0,boxShadow:'0 2px 8px rgba(109,40,217,0.35)'}}>
+        <div style={{width:36,height:36,borderRadius:10,background:'var(--purple-grad)',display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden',flexShrink:0,boxShadow:'0 2px 8px rgba(105,107,198,0.35)'}}>
           {imgOk
             ?<img src="/images/icono-logo.png" alt="Logo" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={()=>setImgOk(false)}/>
             :<span style={{fontSize:16,fontWeight:900,color:'#fff'}}>C</span>}
@@ -154,7 +154,7 @@ function AdminAuth({onLogin}){
   return<div style={{minHeight:'100vh',display:'flex',alignItems:'center',justifyContent:'center',background:'var(--bg)'}}>
     <div className="fade" style={{background:'var(--white)',borderRadius:20,padding:44,maxWidth:400,width:'100%',boxShadow:'var(--shadow-lg)',border:'1.5px solid var(--border)'}}>
       <div style={{textAlign:'center',marginBottom:32}}>
-        <div style={{width:60,height:60,borderRadius:16,background:'var(--purple-grad)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px',overflow:'hidden',boxShadow:'0 4px 16px rgba(109,40,217,0.35)'}}>
+        <div style={{width:60,height:60,borderRadius:16,background:'var(--purple-grad)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px',overflow:'hidden',boxShadow:'0 4px 16px rgba(105,107,198,0.35)'}}>
           {imgOk?<img src="/images/icono-logo.png" alt="Logo" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={()=>setImgOk(false)}/>:<span style={{fontSize:26,fontWeight:900,color:'#fff'}}>C</span>}
         </div>
         <h1 style={{fontSize:22,fontWeight:900,color:'var(--text)'}}>Clocks Admin</h1>
@@ -506,7 +506,7 @@ function CalendarView({data,onCancel,onApptAdded,onAddBlock,salonSchedule=[],loc
       <div><h1 style={{fontSize:24,fontWeight:900}}>Calendario</h1><p style={{fontSize:13,color:'var(--text3)'}}>{isSingleBarber?'Vista semanal':'Vista diaria'} · {numDays} día{numDays!==1?'s':''}</p></div>
       <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
         {!lockedStylistId&&<TeamDropdown stylists={activeSty} selected={selectedIds} onChange={ids=>{setSelectedIds(ids);setAlvaroMode(false)}}/>}
-        {!lockedStylistId&&alvaroSty&&<button onClick={()=>setAlvaroMode(m=>!m)} style={{display:'flex',alignItems:'center',gap:6,padding:'8px 14px',fontSize:13,fontWeight:700,fontFamily:'inherit',background:alvaroMode?'var(--purple-grad)':'var(--white)',border:'1.5px solid var(--border2)',borderRadius:9,cursor:'pointer',color:alvaroMode?'#fff':'var(--text)',boxShadow:alvaroMode?'0 2px 8px rgba(109,40,217,0.3)':'var(--shadow)',transition:'all .2s'}}>
+        {!lockedStylistId&&alvaroSty&&<button onClick={()=>setAlvaroMode(m=>!m)} style={{display:'flex',alignItems:'center',gap:6,padding:'8px 14px',fontSize:13,fontWeight:700,fontFamily:'inherit',background:alvaroMode?'var(--purple-grad)':'var(--white)',border:'1.5px solid var(--border2)',borderRadius:9,cursor:'pointer',color:alvaroMode?'#fff':'var(--text)',boxShadow:alvaroMode?'0 2px 8px rgba(105,107,198,0.3)':'var(--shadow)',transition:'all .2s'}}>
           👑 {alvaroSty.name}
         </button>}
         <Btn small onClick={()=>setAddM({date:toK(days[0]),stylistId:visibleStylists[0]?.id})}>+ Cita manual</Btn>
@@ -659,12 +659,12 @@ const exportStudentsXLSX=(enrolled,configs,fees,yr)=>{
   const ER=()=>`<Row><Cell ss:StyleID="emp"/></Row>`
 
   const STYLES=`<Styles>
-<Style ss:ID="Default"><Font ss:FontName="Calibri" ss:Size="11" ss:Color="#1A0A3B"/></Style>
+<Style ss:ID="Default"><Font ss:FontName="Calibri" ss:Size="11" ss:Color="#2D2D2F"/></Style>
 <Style ss:ID="emp"><Font ss:FontName="Calibri" ss:Size="6"/></Style>
-<Style ss:ID="hdr"><Font ss:Bold="1" ss:Color="#FFFFFF" ss:FontName="Calibri" ss:Size="11"/><Interior ss:Color="#6D28D9" ss:Pattern="Solid"/></Style>
-<Style ss:ID="hdr2"><Font ss:Bold="1" ss:Color="#FFFFFF" ss:FontName="Calibri" ss:Size="11"/><Interior ss:Color="#7C3AED" ss:Pattern="Solid"/></Style>
-<Style ss:ID="tot"><Font ss:Bold="1" ss:FontName="Calibri"/><Interior ss:Color="#EDE9FE" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0.00"/></Style>
-<Style ss:ID="tots"><Font ss:Bold="1" ss:FontName="Calibri"/><Interior ss:Color="#EDE9FE" ss:Pattern="Solid"/></Style>
+<Style ss:ID="hdr"><Font ss:Bold="1" ss:Color="#FFFFFF" ss:FontName="Calibri" ss:Size="11"/><Interior ss:Color="#696BC6" ss:Pattern="Solid"/></Style>
+<Style ss:ID="hdr2"><Font ss:Bold="1" ss:Color="#FFFFFF" ss:FontName="Calibri" ss:Size="11"/><Interior ss:Color="#8B8DD9" ss:Pattern="Solid"/></Style>
+<Style ss:ID="tot"><Font ss:Bold="1" ss:FontName="Calibri"/><Interior ss:Color="#E7E7F6" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0.00"/></Style>
+<Style ss:ID="tots"><Font ss:Bold="1" ss:FontName="Calibri"/><Interior ss:Color="#E7E7F6" ss:Pattern="Solid"/></Style>
 <Style ss:ID="num"><NumberFormat ss:Format="#,##0.00"/></Style>
 <Style ss:ID="paid"><Interior ss:Color="#DCFCE7" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0.00"/></Style>
 <Style ss:ID="debt"><Interior ss:Color="#FEE2E2" ss:Pattern="Solid"/><NumberFormat ss:Format="#,##0.00"/></Style>
@@ -1467,7 +1467,7 @@ function TeamView({data,onSave,onDel,onLink,onUnlink}){
             </>:<>
               <div style={{width:28,height:28,borderRadius:14,background:'var(--border)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,color:'var(--text3)',flexShrink:0}}>?</div>
               <span style={{flex:1,fontSize:12,color:'var(--text3)'}}>Sin cuenta vinculada</span>
-              <button onClick={()=>{setLinkFor(s);setSearch('')}} style={{fontSize:11,fontWeight:700,color:'var(--purple)',background:'var(--purple-bg)',border:'1px solid rgba(109,40,217,0.15)',borderRadius:7,padding:'4px 9px',cursor:'pointer',fontFamily:'inherit',flexShrink:0}}>Vincular</button>
+              <button onClick={()=>{setLinkFor(s);setSearch('')}} style={{fontSize:11,fontWeight:700,color:'var(--purple)',background:'var(--purple-bg)',border:'1px solid rgba(105,107,198,0.15)',borderRadius:7,padding:'4px 9px',cursor:'pointer',fontFamily:'inherit',flexShrink:0}}>Vincular</button>
             </>}
           </div>
 
