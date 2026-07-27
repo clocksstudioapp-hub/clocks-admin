@@ -59,6 +59,9 @@ const PLANS=[{id:'iniciacion',label:'Iniciación',color:'var(--blue)',bg:'var(--
 
 const EXPENSE_CATS=[{id:'alquiler',label:'Alquiler',icon:'🏠'},{id:'productos',label:'Productos',icon:'🧴'},{id:'suministros',label:'Suministros',icon:'💡'},{id:'marketing',label:'Marketing',icon:'📣'},{id:'personal',label:'Personal',icon:'👤'},{id:'equipamiento',label:'Equipamiento',icon:'🪑'},{id:'general',label:'General',icon:'📦'},{id:'otro',label:'Otro',icon:'📝'}]
 const STY_COLORS=['#696BC6','#EA580C','#0891B2','#CA8A04','#16A34A','#DB2777','#8B8DD9','#DC2626']
+// Punto unico de referencia al logo del panel. Cuando lleguen los logos
+// propios de School, se cambia aqui o se sobrescribe el fichero.
+const LOGO_MARK = '/images/anagrama-blanco.png'
 
 const exportCSV=(rows,filename)=>{
   const header=Object.keys(rows[0]).join(';')
@@ -129,7 +132,7 @@ function Sidebar({active,onNav,isMainAdmin,stylistName}){
       <div style={{display:'flex',alignItems:'center',gap:10}}>
         <div style={{width:36,height:36,borderRadius:10,background:'var(--purple-grad)',display:'flex',alignItems:'center',justifyContent:'center',overflow:'hidden',flexShrink:0,boxShadow:'0 2px 8px rgba(105,107,198,0.35)'}}>
           {imgOk
-            ?<img src="/images/icono-logo.png" alt="Logo" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={()=>setImgOk(false)}/>
+            ?<img src={LOGO_MARK} alt="Clocks" style={{width:'100%',height:'100%',objectFit:'contain',padding:4}} onError={()=>setImgOk(false)}/>
             :<span style={{fontSize:16,fontWeight:900,color:'#fff'}}>C</span>}
         </div>
         <div>
@@ -155,7 +158,7 @@ function AdminAuth({onLogin}){
     <div className="fade" style={{background:'var(--white)',borderRadius:20,padding:44,maxWidth:400,width:'100%',boxShadow:'var(--shadow-lg)',border:'1.5px solid var(--border)'}}>
       <div style={{textAlign:'center',marginBottom:32}}>
         <div style={{width:60,height:60,borderRadius:16,background:'var(--purple-grad)',display:'flex',alignItems:'center',justifyContent:'center',margin:'0 auto 16px',overflow:'hidden',boxShadow:'0 4px 16px rgba(105,107,198,0.35)'}}>
-          {imgOk?<img src="/images/icono-logo.png" alt="Logo" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={()=>setImgOk(false)}/>:<span style={{fontSize:26,fontWeight:900,color:'#fff'}}>C</span>}
+          {imgOk?<img src={LOGO_MARK} alt="Clocks" style={{width:'100%',height:'100%',objectFit:'contain',padding:4}} onError={()=>setImgOk(false)}/>:<span style={{fontSize:26,fontWeight:900,color:'#fff'}}>C</span>}
         </div>
         <h1 style={{fontSize:22,fontWeight:900,color:'var(--text)'}}>Clocks Admin</h1>
         <p style={{fontSize:14,color:'var(--text3)',marginTop:4}}>Acceso restringido</p>
