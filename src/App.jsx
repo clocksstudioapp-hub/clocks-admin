@@ -1519,6 +1519,7 @@ function CFJuventudView({data,onChanged}){
   const{allProfiles=[],cfTeams=[],cfService}=data
   const players=allProfiles.filter(p=>p.role==='player')
   const[redeemedIds,setRedeemedIds]=useState(new Set())
+  const[totalCuts,setTotalCuts]=useState(null)
   const[ld,setLd]=useState(true)
   const[search,setSearch]=useState('')
   const[editTeam,setEditTeam]=useState(null)
@@ -1526,8 +1527,16 @@ function CFJuventudView({data,onChanged}){
   useEffect(()=>{
     if(!cfService){setLd(false);return}
     const[from,to]=monthRangeAdmin(new Date())
-    supabase.from('appointments').select('user_id').eq('service_id',cfService.id).eq('status','confirmed').gte('appointment_date',from).lte('appointment_date',to)
-      .then(({data:red})=>{setRedeemedIds(new Set((red||[]).map(r=>r.user_id)));setLd(false)})
+    Promise.all([
+      supabase.from('appointments').select('user_id').eq('service_id',cfService.id).eq('status','confirmed').gte('appointment_date',from).lte('appointment_date',to),
+      // El acumulado se cuenta en servidor y no sobre `appts`, que llega limitado a 1000 filas.
+      // Incluye 'completed' para no dejar de contar cortes ya dados el día que se marquen así.
+      supabase.from('appointments').select('id',{count:'exact',head:true}).eq('service_id',cfService.id).in('status',['confirmed','completed']),
+    ]).then(([{data:red},{count}])=>{
+      setRedeemedIds(new Set((red||[]).map(r=>r.user_id)))
+      setTotalCuts(count??0)
+      setLd(false)
+    })
   },[cfService])
 
   const filtered=search?players.filter(p=>p.full_name?.toLowerCase().includes(search.toLowerCase())):players
@@ -1559,6 +1568,7 @@ function CFJuventudView({data,onChanged}){
       <Stat label="Jugadores" value={players.length} icon="⚽"/>
       <Stat label="Cortes usados este mes" value={players.filter(p=>redeemedIds.has(p.id)).length} icon="✂️" color="var(--orange)" bg="var(--orange-bg)"/>
       <Stat label="Disponibles" value={players.filter(p=>!redeemedIds.has(p.id)).length} icon="✓" color="var(--green)" bg="var(--green-bg)"/>
+      <Stat label="Cortes gratis en total" value={totalCuts??'—'} sub="desde el inicio de la colaboración" icon="🎟️"/>
     </div>
 
     <div style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',boxShadow:'var(--shadow)',overflow:'hidden',marginBottom:28}}>
@@ -1580,10 +1590,12 @@ function CFJuventudView({data,onChanged}){
       <Btn small onClick={()=>setEditTeam({name:'',active:true})}>+ Añadir equipo</Btn>
     </div>
     <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:10}}>
-      {cfTeams.map(t=><div key={t.id} style={{display:'flex',alignItems:'center',gap:8,padding:'10px 14px',background:'var(--white)',border:'1.5px solid var(--border)',borderRadius:10,opacity:t.active?1:0.5}}>
+      {cfTeams.map(t=>{const n=players.filter(p=>p.team_id===t.id).length
+      return <div key={t.id} style={{display:'flex',alignItems:'center',gap:8,padding:'10px 14px',background:'var(--white)',border:'1.5px solid var(--border)',borderRadius:10,opacity:t.active?1:0.5}}>
         <span style={{flex:1,fontSize:13,fontWeight:600}}>{t.name}</span>
+        <span title={n===1?'1 jugador registrado':n+' jugadores registrados'} style={{fontSize:11,fontWeight:700,whiteSpace:'nowrap',padding:'3px 9px',borderRadius:8,color:n?'var(--purple)':'var(--text3)',background:n?'var(--purple-bg2)':'var(--bg)'}}>{n}</span>
         <Btn small variant="secondary" onClick={()=>setEditTeam(t)}>Editar</Btn>
-      </div>)}
+      </div>})}
     </div>
 
     {editTeam&&<CfTeamModal data={editTeam} onSave={saveTeam} onDelete={editTeam.id?()=>{delTeam(editTeam.id);setEditTeam(null)}:null} onClose={()=>setEditTeam(null)}/>}
