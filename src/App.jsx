@@ -1517,7 +1517,7 @@ function StyModal({d,onSave,onClose}){
 const monthRangeAdmin=d=>{const y=d.getFullYear(),m=d.getMonth();return[toK(new Date(y,m,1)),toK(new Date(y,m+1,0))]}
 
 function CFJuventudView({data,onChanged}){
-  const{allProfiles=[],cfTeams=[],cfService,services=[]}=data
+  const{allProfiles=[],cfTeams=[],cfService}=data
   const players=allProfiles.filter(p=>p.role==='player')
   const[redeemedIds,setRedeemedIds]=useState(new Set())
   const[totalCuts,setTotalCuts]=useState(null)
@@ -1548,11 +1548,6 @@ function CFJuventudView({data,onChanged}){
 
   const filtered=search?players.filter(p=>p.full_name?.toLowerCase().includes(search.toLowerCase())):players
 
-  // El corte del club vale 0 €, así que para valorar lo cedido se usa el
-  // servicio de pago equivalente (misma duración) más barato. Se lee de la BD y
-  // no de una constante, para que siga al precio real si algún día lo suben.
-  const refSvc=services.filter(x=>x.active&&!x.player_only&&(!cfService||x.duration===cfService.duration))
-                       .sort((a,b)=>Number(a.price)-Number(b.price))[0]
 
   const saveTeam=async d=>{
     if(d.id)await supabase.from('cf_teams').update({name:d.name,active:d.active}).eq('id',d.id)
@@ -1586,8 +1581,7 @@ function CFJuventudView({data,onChanged}){
       <Stat label="Jugadores" value={players.length} icon="⚽"/>
       <Stat label="Cortes usados este mes" value={players.filter(p=>redeemedIds.has(p.id)).length} icon="✂️" color="var(--orange)" bg="var(--orange-bg)"/>
       <Stat label="Disponibles" value={players.filter(p=>!redeemedIds.has(p.id)).length} icon="✓" color="var(--green)" bg="var(--green-bg)"/>
-      <Stat label="Cortes gratis en total" value={totalCuts??'—'} sub="desde el inicio de la colaboración" icon="🎟️"/>
-      {refSvc&&<Stat label="Ingreso cedido" value={`${(( totalCuts??0)*Number(refSvc.price)).toFixed(0)} €`} sub={`estimado a precio de ${refSvc.name} (${Number(refSvc.price).toFixed(2)} €)`} icon="💸" color="var(--orange)" bg="var(--orange-bg)"/>}
+      <Stat label="Cortes gratis en total" value={totalCuts??'—'} sub="prácticas para los alumnos desde el inicio" icon="🎟️"/>
     </div>
 
     <div style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',boxShadow:'var(--shadow)',overflow:'hidden',marginBottom:28}}>
