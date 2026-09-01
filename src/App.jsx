@@ -1523,6 +1523,7 @@ function CFJuventudView({data,onChanged}){
   const[totalCuts,setTotalCuts]=useState(null)
   const[byMonth,setByMonth]=useState([])
   const[revoke,setRevoke]=useState(null)
+  const[cfg,setCfg]=useState({})
   const[ld,setLd]=useState(true)
   const[search,setSearch]=useState('')
   const[editTeam,setEditTeam]=useState(null)
@@ -1536,7 +1537,9 @@ function CFJuventudView({data,onChanged}){
       // Incluye 'completed' para no dejar de contar cortes ya dados el día que se marquen así.
       supabase.from('appointments').select('id',{count:'exact',head:true}).eq('service_id',cfService.id).in('status',['confirmed','completed']),
       supabase.from('appointments').select('appointment_date').eq('service_id',cfService.id).in('status',['confirmed','completed']),
-    ]).then(([{data:red},{count},{data:all}])=>{
+      supabase.from('salon_config').select('key,value').in('key',['cf_open_to_all','cf_monthly_limit']),
+    ]).then(([{data:red},{count},{data:all},{data:cf}])=>{
+      const m={};(cf||[]).forEach(r=>{m[r.key]=r.value});setCfg(m)
       setRedeemedIds(new Set((red||[]).map(r=>r.user_id)))
       setTotalCuts(count??0)
       const acc={}
@@ -1560,6 +1563,15 @@ function CFJuventudView({data,onChanged}){
   // anti-escalada se salta a los admins: ambas van directas, sin RPC.
   const changeTeam=async(id,teamId)=>{await supabase.from('profiles').update({team_id:teamId?Number(teamId):null}).eq('id',id);onChanged()}
   const revokePlayer=async id=>{await supabase.from('profiles').update({role:'client',team_id:null}).eq('id',id);setRevoke(null);onChanged()}
+
+  // salon_config es clave/valor: se actualiza la fila de esa key, o se crea.
+  const setSwitch=async(key,value)=>{
+    const v=String(value)
+    setCfg(c=>({...c,[key]:v}))
+    const{data:ex}=await supabase.from('salon_config').select('id').eq('key',key).maybeSingle()
+    if(ex)await supabase.from('salon_config').update({value:v}).eq('id',ex.id)
+    else await supabase.from('salon_config').insert({key,value:v})
+  }
 
   const handleExport=()=>{
     const rows=players.map(p=>({Jugador:p.full_name||'—',Telefono:p.phone||'—',Equipo:cfTeams.find(t=>t.id===p.team_id)?.name||'—',Estado:redeemedIds.has(p.id)?'Usado este mes':'Disponible'}))
@@ -1600,6 +1612,35 @@ function CFJuventudView({data,onChanged}){
           :<span style={{fontSize:11,fontWeight:700,color:'var(--green)',background:'var(--green-bg)',padding:'3px 10px',borderRadius:8,width:'fit-content'}}>Disponible</span>}
         <Btn small variant="secondary" onClick={()=>setRevoke(p)}>Dar de baja</Btn>
       </div>)}
+    </div>
+
+    <div style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',boxShadow:'var(--shadow)',padding:'18px 20px',marginBottom:20}}>
+      <h2 style={{fontSize:14,fontWeight:800,marginBottom:4}}>Apertura</h2>
+      <p style={{fontSize:12,color:'var(--text3)',marginBottom:16}}>Más citas = más maniquíes para los alumnos. Abre la mano cuando quieras volumen.</p>
+
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:16,padding:'12px 0',borderTop:'1px solid var(--border)'}}>
+        <div style={{minWidth:0}}>
+          <div style={{fontSize:13,fontWeight:700}}>Cortes gratis al mes por persona</div>
+          <div style={{fontSize:11,color:'var(--text3)',marginTop:2}}>Requiere la migración 20260901000000 aplicada; hasta entonces la base de datos sigue imponiendo 1.</div>
+        </div>
+        <select value={cfg.cf_monthly_limit??'1'} onChange={e=>setSwitch('cf_monthly_limit',e.target.value)} style={{padding:'7px 10px',fontSize:13,border:'1.5px solid var(--border2)',borderRadius:9,background:'var(--white)',fontFamily:'inherit'}}>
+          <option value="1">1 al mes</option>
+          <option value="2">2 al mes</option>
+          <option value="3">3 al mes</option>
+          <option value="0">Sin límite</option>
+        </select>
+      </div>
+
+      <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:16,padding:'12px 0',borderTop:'1px solid var(--border)'}}>
+        <div style={{minWidth:0}}>
+          <div style={{fontSize:13,fontWeight:700}}>Abierto a todo el mundo</div>
+          <div style={{fontSize:11,color:'var(--text3)',marginTop:2}}>El corte gratis sale en el catálogo público y lo reserva cualquiera, sea del club o no. Efecto inmediato.</div>
+        </div>
+        <select value={String(cfg.cf_open_to_all).toLowerCase()==='true'?'true':'false'} onChange={e=>setSwitch('cf_open_to_all',e.target.value)} style={{padding:'7px 10px',fontSize:13,border:'1.5px solid var(--border2)',borderRadius:9,background:'var(--white)',fontFamily:'inherit'}}>
+          <option value="false">Solo jugadores</option>
+          <option value="true">Todo el mundo</option>
+        </select>
+      </div>
     </div>
 
     <div style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',boxShadow:'var(--shadow)',padding:'18px 20px',marginBottom:28}}>
