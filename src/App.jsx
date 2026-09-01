@@ -622,6 +622,7 @@ function CalendarView({data,onCancel,onApptAdded,onAddBlock,salonSchedule=[],loc
       {(()=>{const a=selAppt,sv=services.find(s=>s.id===a.service_id),st=stylists.find(s=>s.id===a.stylist_id),pr=profiles[a.user_id];const name=a.user_id?pr?.full_name:a.notes?.replace(/^\[TEL\]\s*/,'').split(' — ')[0]||'Tel.';return<>
         <h3 style={{fontSize:20,fontWeight:900,marginBottom:16}}>Detalle de cita</h3>
         {!a.user_id&&<div style={{background:'var(--purple-bg)',borderRadius:9,padding:'8px 12px',marginBottom:14,fontSize:12,fontWeight:600,color:'var(--purple)'}}>📞 Cita registrada por teléfono</div>}
+        {sv?.player_only&&<div style={{background:'var(--orange-bg)',borderRadius:9,padding:'10px 12px',marginBottom:14,fontSize:12,fontWeight:700,color:'var(--orange)',lineHeight:1.5}}>⚽ Corte gratis del C.F. Santo Domingo Juventud — pide el carnet del club antes de atender</div>}
         <div style={{display:'grid',gridTemplateColumns:'1fr 1fr',gap:'10px 20px',marginBottom:20}}>
           {[['Cliente',name||'—'],['Servicio',sv?.name||'—'],['Profesional',st?.name||'—'],['Fecha',fDF(parseDate(a.appointment_date))],['Hora',`${a.appointment_time?.slice(0,5)} — ${a.end_time?.slice(0,5)}`],['Precio',sv?`${Number(sv.price).toFixed(2)} €`:'—'],['Estado',a.status],['Notas',a.notes||'—']].map(([k,v])=><div key={k}><div style={{fontSize:11,fontWeight:600,color:'var(--text3)',textTransform:'uppercase',marginBottom:2}}>{k}</div><div style={{fontSize:14,fontWeight:500}}>{v}</div></div>)}
         </div>
@@ -1516,10 +1517,12 @@ function StyModal({d,onSave,onClose}){
 const monthRangeAdmin=d=>{const y=d.getFullYear(),m=d.getMonth();return[toK(new Date(y,m,1)),toK(new Date(y,m+1,0))]}
 
 function CFJuventudView({data,onChanged}){
-  const{allProfiles=[],cfTeams=[],cfService}=data
+  const{allProfiles=[],cfTeams=[],cfService,services=[]}=data
   const players=allProfiles.filter(p=>p.role==='player')
   const[redeemedIds,setRedeemedIds]=useState(new Set())
   const[totalCuts,setTotalCuts]=useState(null)
+  const[byMonth,setByMonth]=useState([])
+  const[revoke,setRevoke]=useState(null)
   const[ld,setLd]=useState(true)
   const[search,setSearch]=useState('')
   const[editTeam,setEditTeam]=useState(null)
@@ -1532,14 +1535,24 @@ function CFJuventudView({data,onChanged}){
       // El acumulado se cuenta en servidor y no sobre `appts`, que llega limitado a 1000 filas.
       // Incluye 'completed' para no dejar de contar cortes ya dados el día que se marquen así.
       supabase.from('appointments').select('id',{count:'exact',head:true}).eq('service_id',cfService.id).in('status',['confirmed','completed']),
-    ]).then(([{data:red},{count}])=>{
+      supabase.from('appointments').select('appointment_date').eq('service_id',cfService.id).in('status',['confirmed','completed']),
+    ]).then(([{data:red},{count},{data:all}])=>{
       setRedeemedIds(new Set((red||[]).map(r=>r.user_id)))
       setTotalCuts(count??0)
+      const acc={}
+      ;(all||[]).forEach(r=>{const ym=r.appointment_date?.slice(0,7);if(ym)acc[ym]=(acc[ym]||0)+1})
+      setByMonth(Object.entries(acc).sort(([a],[b])=>a.localeCompare(b)).slice(-12))
       setLd(false)
     })
   },[cfService])
 
   const filtered=search?players.filter(p=>p.full_name?.toLowerCase().includes(search.toLowerCase())):players
+
+  // El corte del club vale 0 €, así que para valorar lo cedido se usa el
+  // servicio de pago equivalente (misma duración) más barato. Se lee de la BD y
+  // no de una constante, para que siga al precio real si algún día lo suben.
+  const refSvc=services.filter(x=>x.active&&!x.player_only&&(!cfService||x.duration===cfService.duration))
+                       .sort((a,b)=>Number(a.price)-Number(b.price))[0]
 
   const saveTeam=async d=>{
     if(d.id)await supabase.from('cf_teams').update({name:d.name,active:d.active}).eq('id',d.id)
@@ -1547,6 +1560,11 @@ function CFJuventudView({data,onChanged}){
     setEditTeam(null);onChanged()
   }
   const delTeam=async id=>{await supabase.from('cf_teams').delete().eq('id',id);onChanged()}
+
+  // profiles_update permite (id = auth.uid() or is_admin()), y el guard
+  // anti-escalada se salta a los admins: ambas van directas, sin RPC.
+  const changeTeam=async(id,teamId)=>{await supabase.from('profiles').update({team_id:teamId?Number(teamId):null}).eq('id',id);onChanged()}
+  const revokePlayer=async id=>{await supabase.from('profiles').update({role:'client',team_id:null}).eq('id',id);setRevoke(null);onChanged()}
 
   const handleExport=()=>{
     const rows=players.map(p=>({Jugador:p.full_name||'—',Telefono:p.phone||'—',Equipo:cfTeams.find(t=>t.id===p.team_id)?.name||'—',Estado:redeemedIds.has(p.id)?'Usado este mes':'Disponible'}))
@@ -1569,20 +1587,39 @@ function CFJuventudView({data,onChanged}){
       <Stat label="Cortes usados este mes" value={players.filter(p=>redeemedIds.has(p.id)).length} icon="✂️" color="var(--orange)" bg="var(--orange-bg)"/>
       <Stat label="Disponibles" value={players.filter(p=>!redeemedIds.has(p.id)).length} icon="✓" color="var(--green)" bg="var(--green-bg)"/>
       <Stat label="Cortes gratis en total" value={totalCuts??'—'} sub="desde el inicio de la colaboración" icon="🎟️"/>
+      {refSvc&&<Stat label="Ingreso cedido" value={`${(( totalCuts??0)*Number(refSvc.price)).toFixed(0)} €`} sub={`estimado a precio de ${refSvc.name} (${Number(refSvc.price).toFixed(2)} €)`} icon="💸" color="var(--orange)" bg="var(--orange-bg)"/>}
     </div>
 
     <div style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',boxShadow:'var(--shadow)',overflow:'hidden',marginBottom:28}}>
-      <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 140px',padding:'10px 20px',borderBottom:'1.5px solid var(--border)',background:'var(--bg)'}}>
-        {['Jugador','Equipo','Estado del mes'].map(h=><div key={h} style={{fontSize:11,fontWeight:700,color:'var(--text3)',textTransform:'uppercase',letterSpacing:'0.05em'}}>{h}</div>)}
+      <div style={{display:'grid',gridTemplateColumns:'2fr 1.3fr 140px 96px',padding:'10px 20px',borderBottom:'1.5px solid var(--border)',background:'var(--bg)'}}>
+        {['Jugador','Equipo','Estado del mes',''].map(h=><div key={h} style={{fontSize:11,fontWeight:700,color:'var(--text3)',textTransform:'uppercase',letterSpacing:'0.05em'}}>{h}</div>)}
       </div>
       {filtered.length===0?<div style={{padding:30,textAlign:'center',color:'var(--text3)'}}>Sin jugadores</div>:
-      filtered.map(p=><div key={p.id} style={{display:'grid',gridTemplateColumns:'2fr 1fr 140px',padding:'12px 20px',borderBottom:'1px solid var(--border)',alignItems:'center'}}>
+      filtered.map(p=><div key={p.id} style={{display:'grid',gridTemplateColumns:'2fr 1.3fr 140px 96px',padding:'12px 20px',borderBottom:'1px solid var(--border)',alignItems:'center'}}>
         <div style={{fontSize:14,fontWeight:500}}>{p.full_name||'Sin nombre'}</div>
-        <div style={{fontSize:13,color:'var(--text2)'}}>{cfTeams.find(t=>t.id===p.team_id)?.name||'—'}</div>
+        <select value={p.team_id||''} onChange={e=>changeTeam(p.id,e.target.value)} style={{fontSize:13,color:'var(--text2)',padding:'5px 8px',border:'1.5px solid var(--border)',borderRadius:8,background:'var(--white)',fontFamily:'inherit',maxWidth:'95%'}}>
+          <option value="">— sin equipo —</option>
+          {cfTeams.map(t=><option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
         {redeemedIds.has(p.id)
           ?<span style={{fontSize:11,fontWeight:700,color:'var(--text3)',background:'var(--bg)',padding:'3px 10px',borderRadius:8,width:'fit-content'}}>Usado</span>
           :<span style={{fontSize:11,fontWeight:700,color:'var(--green)',background:'var(--green-bg)',padding:'3px 10px',borderRadius:8,width:'fit-content'}}>Disponible</span>}
+        <Btn small variant="secondary" onClick={()=>setRevoke(p)}>Dar de baja</Btn>
       </div>)}
+    </div>
+
+    <div style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',boxShadow:'var(--shadow)',padding:'18px 20px',marginBottom:28}}>
+      <h2 style={{fontSize:14,fontWeight:800,marginBottom:16}}>Cortes gratis por mes</h2>
+      {byMonth.length===0
+        ?<p style={{fontSize:13,color:'var(--text3)'}}>Todavía no hay ningún corte registrado.</p>
+        :(()=>{const mx=Math.max(...byMonth.map(([,n])=>n))
+          return <div style={{display:'flex',alignItems:'flex-end',gap:8,minHeight:130}}>
+            {byMonth.map(([ym,n])=><div key={ym} style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',gap:6}}>
+              <div style={{fontSize:12,fontWeight:800,color:'var(--text2)'}}>{n}</div>
+              <div style={{width:'100%',maxWidth:44,height:Math.max(4,Math.round(n/mx*90)),background:'var(--purple-grad)',borderRadius:'5px 5px 0 0'}}/>
+              <div style={{fontSize:10,color:'var(--text3)',whiteSpace:'nowrap'}}>{MO[Number(ym.slice(5,7))-1].slice(0,3)}</div>
+            </div>)}
+          </div>})()}
     </div>
 
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
@@ -1599,6 +1636,16 @@ function CFJuventudView({data,onChanged}){
     </div>
 
     {editTeam&&<CfTeamModal data={editTeam} onSave={saveTeam} onDelete={editTeam.id?()=>{delTeam(editTeam.id);setEditTeam(null)}:null} onClose={()=>setEditTeam(null)}/>}
+
+    {revoke&&<Modal onClose={()=>setRevoke(null)}>
+      <h3 style={{fontSize:18,fontWeight:900,marginBottom:12}}>¿Dar de baja a {revoke.full_name||'este jugador'}?</h3>
+      <p style={{fontSize:13,color:'var(--text2)',lineHeight:1.6,marginBottom:8}}>Dejará de ser jugador del club y perderá el corte gratis mensual. Su cuenta y su historial de citas se mantienen: pasa a ser un cliente normal.</p>
+      <p style={{fontSize:13,color:'var(--text3)',lineHeight:1.6,marginBottom:16}}>Si tiene un corte gratis ya reservado, <b>no se cancela</b> — anúlalo desde la agenda si hace falta. Y ten en cuenta que puede volver a darse de alta él mismo en /juventud, porque el alta es libre.</p>
+      <div style={{display:'flex',gap:10}}>
+        <Btn variant="secondary" onClick={()=>setRevoke(null)} style={{flex:1}}>Volver</Btn>
+        <Btn variant="danger" onClick={()=>revokePlayer(revoke.id)} style={{flex:1}}>Dar de baja</Btn>
+      </div>
+    </Modal>}
   </div>
 }
 
@@ -1913,7 +1960,7 @@ export default function App(){
   const addExpense=async d=>{await supabase.from('expenses').insert({...d,created_by:user.id});loadAll()}
   const delExpense=async id=>{await supabase.from('expenses').delete().eq('id',id);loadAll()}
   const linkProfile=async(stylistId,profileId)=>{await supabase.from('profiles').update({role:'barber',stylist_id:stylistId}).eq('id',profileId);loadAll()}
-  const unlinkProfile=async(profileId)=>{await supabase.from('profiles').update({role:'user',stylist_id:null}).eq('id',profileId);loadAll()}
+  const unlinkProfile=async(profileId)=>{await supabase.from('profiles').update({role:'client',stylist_id:null}).eq('id',profileId);loadAll()}
 
   const addTimeOff=async rows=>{await supabase.from('time_off').insert(rows.map(r=>({...r,created_by:user.id})));loadAll()}
   const delTimeOff=async id=>{await supabase.from('time_off').delete().eq('id',id);loadAll()}
