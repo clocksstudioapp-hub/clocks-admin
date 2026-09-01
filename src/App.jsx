@@ -1524,6 +1524,7 @@ function CFJuventudView({data,onChanged}){
   const[byMonth,setByMonth]=useState([])
   const[revoke,setRevoke]=useState(null)
   const[cfg,setCfg]=useState({})
+  const[bulk,setBulk]=useState(null)
   const[ld,setLd]=useState(true)
   const[search,setSearch]=useState('')
   const[editTeam,setEditTeam]=useState(null)
@@ -1558,6 +1559,24 @@ function CFJuventudView({data,onChanged}){
     setEditTeam(null);onChanged()
   }
   const delTeam=async id=>{await supabase.from('cf_teams').delete().eq('id',id);onChanged()}
+
+  // Renombrado en bloque. Empareja por posición con el orden que se ve en
+  // pantalla (display_order). Renombrar conserva el id, así que los jugadores ya
+  // apuntados siguen ligados a su equipo.
+  const bulkNames=()=>(bulk||'').split('\n').map(x=>x.trim()).filter(Boolean)
+  const applyBulk=async()=>{
+    const names=bulkNames()
+    let mx=cfTeams.reduce((m,t)=>Math.max(m,t.display_order||0),0)
+    for(let i=0;i<names.length;i++){
+      if(i<cfTeams.length){
+        if(cfTeams[i].name!==names[i])await supabase.from('cf_teams').update({name:names[i]}).eq('id',cfTeams[i].id)
+      }else{
+        mx+=1
+        await supabase.from('cf_teams').insert({name:names[i],active:true,display_order:mx})
+      }
+    }
+    setBulk(null);onChanged()
+  }
 
   // profiles_update permite (id = auth.uid() or is_admin()), y el guard
   // anti-escalada se salta a los admins: ambas van directas, sin RPC.
@@ -1659,7 +1678,10 @@ function CFJuventudView({data,onChanged}){
 
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:14}}>
       <h2 style={{fontSize:18,fontWeight:900}}>Equipos</h2>
-      <Btn small onClick={()=>setEditTeam({name:'',active:true})}>+ Añadir equipo</Btn>
+      <div style={{display:'flex',gap:8}}>
+        <Btn small variant="secondary" onClick={()=>setBulk(cfTeams.map(t=>t.name).join('\n'))}>📋 Pegar lista</Btn>
+        <Btn small onClick={()=>setEditTeam({name:'',active:true})}>+ Añadir equipo</Btn>
+      </div>
     </div>
     <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(200px,1fr))',gap:10}}>
       {cfTeams.map(t=>{const n=players.filter(p=>p.team_id===t.id).length
@@ -1671,6 +1693,31 @@ function CFJuventudView({data,onChanged}){
     </div>
 
     {editTeam&&<CfTeamModal data={editTeam} onSave={saveTeam} onDelete={editTeam.id?()=>{delTeam(editTeam.id);setEditTeam(null)}:null} onClose={()=>setEditTeam(null)}/>}
+
+    {bulk!==null&&(()=>{const names=bulkNames();return<Modal onClose={()=>setBulk(null)}>
+      <h3 style={{fontSize:18,fontWeight:900,marginBottom:6}}>Renombrar equipos en bloque</h3>
+      <p style={{fontSize:13,color:'var(--text3)',lineHeight:1.6,marginBottom:14}}>Un nombre por línea, en el mismo orden en que salen abajo. Renombrar conserva el equipo, así que los jugadores ya apuntados no se despegan.</p>
+      <textarea value={bulk} onChange={e=>setBulk(e.target.value)} rows={12} spellCheck={false} style={{width:'100%',padding:'12px 14px',fontSize:13,border:'1.5px solid var(--border2)',borderRadius:10,background:'var(--white)',color:'var(--text)',fontFamily:'ui-monospace,SFMono-Regular,Menlo,monospace',lineHeight:1.6,resize:'vertical'}}/>
+      <div style={{fontSize:12,color:'var(--text3)',margin:'10px 0 6px'}}>{names.length} nombre{names.length===1?'':'s'} · {cfTeams.length} equipo{cfTeams.length===1?'':'s'} actuales</div>
+      <div style={{maxHeight:210,overflowY:'auto',border:'1.5px solid var(--border)',borderRadius:10,marginBottom:16}}>
+        {names.map((n,i)=>{const cur=cfTeams[i]
+          const tag=!cur?['nuevo','var(--green)','var(--green-bg)']:cur.name===n?['sin cambios','var(--text3)','var(--bg)']:['renombrar','var(--purple)','var(--purple-bg2)']
+          return<div key={i} style={{display:'grid',gridTemplateColumns:'1fr 16px 1fr 96px',gap:8,alignItems:'center',padding:'7px 12px',borderBottom:'1px solid var(--border)',fontSize:12}}>
+            <span style={{color:'var(--text3)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{cur?cur.name:'—'}</span>
+            <span style={{color:'var(--text3)'}}>→</span>
+            <span style={{fontWeight:600,overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{n}</span>
+            <span style={{fontSize:10,fontWeight:700,color:tag[1],background:tag[2],padding:'2px 7px',borderRadius:7,justifySelf:'end'}}>{tag[0]}</span>
+          </div>})}
+        {names.length<cfTeams.length&&cfTeams.slice(names.length).map(t=><div key={t.id} style={{display:'grid',gridTemplateColumns:'1fr 16px 1fr 96px',gap:8,alignItems:'center',padding:'7px 12px',borderBottom:'1px solid var(--border)',fontSize:12,opacity:0.55}}>
+          <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{t.name}</span><span/><span/>
+          <span style={{fontSize:10,fontWeight:700,color:'var(--text3)',background:'var(--bg)',padding:'2px 7px',borderRadius:7,justifySelf:'end'}}>se queda</span>
+        </div>)}
+      </div>
+      <div style={{display:'flex',gap:10}}>
+        <Btn variant="secondary" onClick={()=>setBulk(null)} style={{flex:1}}>Cancelar</Btn>
+        <Btn onClick={applyBulk} disabled={names.length===0} style={{flex:1}}>Aplicar</Btn>
+      </div>
+    </Modal>})()}
 
     {revoke&&<Modal onClose={()=>setRevoke(null)}>
       <h3 style={{fontSize:18,fontWeight:900,marginBottom:12}}>¿Dar de baja a {revoke.full_name||'este jugador'}?</h3>
