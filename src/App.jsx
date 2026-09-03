@@ -409,6 +409,25 @@ function TeamDropdown({stylists,selected,onChange}){
   </div>
 }
 
+// ═══ TURNOS ═══
+// La frontera mañana/tarde sale del descanso del horario del salón: TM es antes
+// del descanso y TT después. El turno de tarde se adelanta media hora, para
+// tener la agenda lista antes de que empiece. Sin descanso configurado devuelve
+// null y la agenda no filtra por turno.
+const hhmm=t=>{if(!t)return null;const p=t.slice(0,5).split(':').map(Number);return p[0]*60+p[1]}
+const turnoPorHora=(sched,now=new Date())=>{
+  const fin=hhmm(sched&&sched.break_end)
+  if(fin==null)return null
+  return (now.getHours()*60+now.getMinutes())>=fin-30?'TT':'TM'
+}
+const enTurno=(s,turno)=>!turno||!s.shift||s.shift==='ambos'||s.shift===turno
+
+// Los profesionales que el admin esconde a mano se guardan en el propio
+// navegador: es una preferencia de vista, no un dato del salón.
+const OCULTOS_KEY='clocks-admin:agenda-ocultos'
+const leerOcultos=()=>{try{return JSON.parse(localStorage.getItem(OCULTOS_KEY))||[]}catch(e){return[]}}
+const guardarOcultos=ids=>{try{localStorage.setItem(OCULTOS_KEY,JSON.stringify(ids))}catch(e){}}
+
 // ═══ CALENDAR VIEW ═══
 function CalendarView({data,onCancel,onApptAdded,onAddBlock,salonSchedule=[],lockedStylistId=null}){
   const{appts,profiles,stylists,services,blocks}=data
@@ -423,11 +442,28 @@ function CalendarView({data,onCancel,onApptAdded,onAddBlock,salonSchedule=[],loc
   const[moveM,setMoveM]=useState(null)           // modal "Mover" manual
   const activeSty=stylists.filter(s=>s.active)
   const alvaroSty=activeSty.find(s=>normName(s.name).includes('alvaro'))||activeSty[0]
-  const[selectedIds,setSelectedIds]=useState(()=>activeSty.map(s=>s.id))
   const[alvaroMode,setAlvaroMode]=useState(false)
+  const[ocultos,setOcultos]=useState(leerOcultos)
+  const[turnoManual,setTurnoManual]=useState(null)   // null = automático por hora
+
+  const schedHoy=salonSchedule.find(x=>x.day_of_week===new Date().getDay())
+  const turnoAuto=turnoPorHora(schedHoy)
+  const turno=turnoManual||turnoAuto
+  const hayTurnos=activeSty.some(s=>s.shift&&s.shift!=='ambos')
+  const delTurno=hayTurnos?activeSty.filter(s=>enTurno(s,turno)):activeSty
+
+  const ocultar=ids=>{
+    // Solo se toca la parte del turno visible; quien esté oculto en el otro
+    // turno se queda como estaba.
+    const fuera=delTurno.filter(s=>!ids.includes(s.id)).map(s=>s.id)
+    const otros=ocultos.filter(id=>!delTurno.some(s=>s.id===id))
+    const nuevo=[...new Set([...otros,...fuera])]
+    setOcultos(nuevo);guardarOcultos(nuevo);setAlvaroMode(false)
+  }
+
   const visibleStylists=lockedStylistId
     ?activeSty.filter(s=>s.id===lockedStylistId)
-    :(alvaroMode?activeSty.filter(s=>s.id===alvaroSty?.id):activeSty.filter(s=>selectedIds.includes(s.id)))
+    :(alvaroMode?activeSty.filter(s=>s.id===alvaroSty?.id):delTurno.filter(s=>!ocultos.includes(s.id)))
   const numDays=daysForCount(visibleStylists.length)
   const isSingleBarber=visibleStylists.length<=1
 
@@ -508,7 +544,11 @@ function CalendarView({data,onCancel,onApptAdded,onAddBlock,salonSchedule=[],loc
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexShrink:0,flexWrap:'wrap',gap:8}}>
       <div><h1 style={{fontSize:24,fontWeight:900}}>Calendario</h1><p style={{fontSize:13,color:'var(--text3)'}}>{isSingleBarber?'Vista semanal':'Vista diaria'} · {numDays} día{numDays!==1?'s':''}</p></div>
       <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
-        {!lockedStylistId&&<TeamDropdown stylists={activeSty} selected={selectedIds} onChange={ids=>{setSelectedIds(ids);setAlvaroMode(false)}}/>}
+        {!lockedStylistId&&hayTurnos&&<div style={{display:'flex',border:'1.5px solid var(--border2)',borderRadius:9,overflow:'hidden',boxShadow:'var(--shadow)'}}>
+          {['TM','TT'].map(t=><button key={t} onClick={()=>setTurnoManual(turnoManual===t?null:t)} title={t==='TM'?'Turno de mañana':'Turno de tarde'} style={{padding:'8px 13px',fontSize:13,fontWeight:700,fontFamily:'inherit',border:'none',cursor:'pointer',background:turno===t?'var(--purple-grad)':'var(--white)',color:turno===t?'#fff':'var(--text3)'}}>{t}</button>)}
+          {turnoManual&&<button onClick={()=>setTurnoManual(null)} title="Volver al turno automático según la hora" style={{padding:'8px 10px',fontSize:11,fontFamily:'inherit',border:'none',borderLeft:'1.5px solid var(--border2)',cursor:'pointer',background:'var(--white)',color:'var(--text3)'}}>auto</button>}
+        </div>}
+        {!lockedStylistId&&<TeamDropdown stylists={delTurno} selected={delTurno.filter(s=>!ocultos.includes(s.id)).map(s=>s.id)} onChange={ocultar}/>}
         {!lockedStylistId&&alvaroSty&&<button onClick={()=>setAlvaroMode(m=>!m)} style={{display:'flex',alignItems:'center',gap:6,padding:'8px 14px',fontSize:13,fontWeight:700,fontFamily:'inherit',background:alvaroMode?'var(--purple-grad)':'var(--white)',border:'1.5px solid var(--border2)',borderRadius:9,cursor:'pointer',color:alvaroMode?'#fff':'var(--text)',boxShadow:alvaroMode?'0 2px 8px rgba(105,107,198,0.3)':'var(--shadow)',transition:'all .2s'}}>
           👑 {alvaroSty.name}
         </button>}
@@ -1456,7 +1496,9 @@ function TeamView({data,onSave,onDel,onLink,onUnlink}){
         return<div key={s.id} className="fade" style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',padding:18,boxShadow:'var(--shadow)',opacity:s.active?1:0.5}}>
           <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:14}}>
             <div style={{width:48,height:48,borderRadius:12,background:'var(--purple-bg)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,color:'var(--purple)',overflow:'hidden',flexShrink:0}}>{s.photo_url?<img src={s.photo_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>:s.name[0]}</div>
-            <div><div style={{fontSize:15,fontWeight:700}}>{s.name}</div><div style={{fontSize:12,color:'var(--text3)'}}>{s.role_title} · {s.username||'—'}</div></div>
+            <div><div style={{fontSize:15,fontWeight:700,display:'flex',alignItems:'center',gap:7}}>{s.name}
+              {s.shift&&s.shift!=='ambos'&&<span title={s.shift==='TM'?'Solo turno de mañana':'Solo turno de tarde'} style={{fontSize:10,fontWeight:800,color:'var(--purple)',background:'var(--purple-bg2)',padding:'2px 7px',borderRadius:7}}>{s.shift}</span>}
+            </div><div style={{fontSize:12,color:'var(--text3)'}}>{s.role_title} · {s.username||'—'}</div></div>
           </div>
 
           {/* Cuenta vinculada */}
@@ -1508,9 +1550,17 @@ function TeamView({data,onSave,onDel,onLink,onUnlink}){
 }
 function StyModal({d,onSave,onClose}){
   const[n,sN]=useState(d.name||''),[u,sU]=useState(d.username||''),[r,sR]=useState(d.role_title||'Barbero'),[p,sP]=useState(d.photo_url||''),[a,sA]=useState(d.active!==false)
+  const[sh,sSh]=useState(d.shift||'ambos')
   const[saving,setSaving]=useState(false),[err,setErr]=useState('')
-  const submit=async()=>{setSaving(true);setErr('');const e=await onSave({...d,name:n,username:u,role_title:r,photo_url:p,active:a});setSaving(false);if(e)setErr(e.message||JSON.stringify(e))}
-  return<Modal onClose={onClose}><h3 style={{fontSize:18,fontWeight:900,marginBottom:16}}>{d.id?'Editar':'Nuevo'} profesional</h3><Inp label="Nombre" required value={n} onChange={e=>sN(e.target.value)}/><Inp label="Username" value={u} onChange={e=>sU(e.target.value)} placeholder="@user"/><Inp label="Rol" value={r} onChange={e=>sR(e.target.value)}/><Inp label="URL foto" value={p} onChange={e=>sP(e.target.value)} placeholder="/images/team-nombre.jpg"/>{p&&<div style={{marginBottom:10,width:50,height:50,borderRadius:10,overflow:'hidden',background:'var(--bg)'}}><img src={p} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/></div>}<div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}><span style={{fontSize:13}}>Activo</span><button onClick={()=>sA(!a)} style={{width:40,height:22,borderRadius:11,border:'none',cursor:'pointer',background:a?'var(--purple)':'var(--border)',position:'relative',transition:'all .3s'}}><div style={{width:18,height:18,borderRadius:9,background:'#fff',position:'absolute',top:2,left:a?20:2,transition:'all .3s',boxShadow:'0 1px 2px rgba(0,0,0,0.15)'}}/></button></div>{err&&<div style={{padding:'10px 12px',background:'var(--red-bg)',border:'1px solid rgba(220,38,38,0.2)',borderRadius:9,marginBottom:12,fontSize:13,color:'var(--red)',fontWeight:600}}>⚠️ {err}</div>}<div style={{display:'flex',gap:8}}><Btn variant="secondary" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={submit} disabled={saving||!n.trim()} style={{flex:1}}>{saving?'Guardando...':'Guardar'}</Btn></div></Modal>
+  const submit=async()=>{setSaving(true);setErr('');const e=await onSave({...d,name:n,username:u,role_title:r,photo_url:p,active:a,shift:sh});setSaving(false);if(e)setErr(e.message||JSON.stringify(e))}
+  return<Modal onClose={onClose}><h3 style={{fontSize:18,fontWeight:900,marginBottom:16}}>{d.id?'Editar':'Nuevo'} profesional</h3><Inp label="Nombre" required value={n} onChange={e=>sN(e.target.value)}/><Inp label="Username" value={u} onChange={e=>sU(e.target.value)} placeholder="@user"/><Inp label="Rol" value={r} onChange={e=>sR(e.target.value)}/><Inp label="URL foto" value={p} onChange={e=>sP(e.target.value)} placeholder="/images/team-nombre.jpg"/>{p&&<div style={{marginBottom:10,width:50,height:50,borderRadius:10,overflow:'hidden',background:'var(--bg)'}}><img src={p} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/></div>}<div style={{marginBottom:14}}>
+    <div style={{fontSize:13,fontWeight:600,marginBottom:6}}>Turno</div>
+    <div style={{display:'flex',gap:6}}>
+      {[['TM','Mañana'],['TT','Tarde'],['ambos','Ambos']].map(([v,lbl])=><button key={v} onClick={()=>sSh(v)} style={{flex:1,padding:'9px 6px',fontSize:13,fontWeight:700,fontFamily:'inherit',borderRadius:9,cursor:'pointer',border:'1.5px solid '+(sh===v?'transparent':'var(--border2)'),background:sh===v?'var(--purple-grad)':'var(--white)',color:sh===v?'#fff':'var(--text2)'}}>{lbl}</button>)}
+    </div>
+    <div style={{fontSize:11,color:'var(--text3)',marginTop:6}}>Determina en qué franja aparece en la agenda. "Ambos" sale siempre.</div>
+  </div>
+  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}><span style={{fontSize:13}}>Activo</span><button onClick={()=>sA(!a)} style={{width:40,height:22,borderRadius:11,border:'none',cursor:'pointer',background:a?'var(--purple)':'var(--border)',position:'relative',transition:'all .3s'}}><div style={{width:18,height:18,borderRadius:9,background:'#fff',position:'absolute',top:2,left:a?20:2,transition:'all .3s',boxShadow:'0 1px 2px rgba(0,0,0,0.15)'}}/></button></div>{err&&<div style={{padding:'10px 12px',background:'var(--red-bg)',border:'1px solid rgba(220,38,38,0.2)',borderRadius:9,marginBottom:12,fontSize:13,color:'var(--red)',fontWeight:600}}>⚠️ {err}</div>}<div style={{display:'flex',gap:8}}><Btn variant="secondary" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={submit} disabled={saving||!n.trim()} style={{flex:1}}>{saving?'Guardando...':'Guardar'}</Btn></div></Modal>
 }
 
 // ═══ CF JUVENTUD ═══
@@ -2037,7 +2087,7 @@ export default function App(){
   const rmBlock=async id=>{await supabase.from('blocked_slots').delete().eq('id',id);loadAll()}
   const saveSvc=async d=>{if(d.id){await supabase.from('services').update({name:d.name,description:d.description,duration:d.duration,price:d.price,category:d.category}).eq('id',d.id)}else{const mx=services.reduce((m,s)=>Math.max(m,s.display_order||0),0);await supabase.from('services').insert({...d,display_order:mx+1,active:true})}loadAll()}
   const delSvc=async id=>{await supabase.from('services').delete().eq('id',id);loadAll()}
-  const saveSty=async d=>{let err;if(d.id){const r=await supabase.from('stylists').update({name:d.name,username:d.username,role_title:d.role_title,photo_url:d.photo_url,active:d.active}).eq('id',d.id);err=r.error}else{const mx=stylists.reduce((m,s)=>Math.max(m,s.display_order||0),0);const r=await supabase.from('stylists').insert({...d,display_order:mx+1,active:true});err=r.error}if(!err)loadAll();return err}
+  const saveSty=async d=>{let err;if(d.id){const r=await supabase.from('stylists').update({name:d.name,username:d.username,role_title:d.role_title,photo_url:d.photo_url,active:d.active,shift:d.shift||'ambos'}).eq('id',d.id);err=r.error}else{const mx=stylists.reduce((m,s)=>Math.max(m,s.display_order||0),0);const r=await supabase.from('stylists').insert({...d,display_order:mx+1,active:true});err=r.error}if(!err)loadAll();return err}
   const delSty=async id=>{await supabase.from('stylists').delete().eq('id',id);loadAll()}
   const addExpense=async d=>{await supabase.from('expenses').insert({...d,created_by:user.id});loadAll()}
   const delExpense=async id=>{await supabase.from('expenses').delete().eq('id',id);loadAll()}
