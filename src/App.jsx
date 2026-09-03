@@ -439,6 +439,10 @@ const turnoDeSched=(sc,sal)=>{
 
 // Los profesionales que el admin esconde a mano se guardan en el propio
 // navegador: es una preferencia de vista, no un dato del salón.
+const COMPLETO_KEY='clocks-admin:agenda-completo'
+const leerCompleto=()=>{try{return localStorage.getItem(COMPLETO_KEY)==='1'}catch(e){return false}}
+const guardarCompleto=v=>{try{localStorage.setItem(COMPLETO_KEY,v?'1':'0')}catch(e){}}
+
 const OCULTOS_KEY='clocks-admin:agenda-ocultos'
 const leerOcultos=()=>{try{return JSON.parse(localStorage.getItem(OCULTOS_KEY))||[]}catch(e){return[]}}
 const guardarOcultos=ids=>{try{localStorage.setItem(OCULTOS_KEY,JSON.stringify(ids))}catch(e){}}
@@ -463,7 +467,9 @@ function CalendarView({data,onCancel,onApptAdded,onAddBlock,salonSchedule=[],loc
 
   const schedHoy=salonSchedule.find(x=>x.day_of_week===new Date().getDay())
   const turnoAuto=turnoPorHora(schedHoy)
-  const turno=turnoManual||turnoAuto
+  const[completo,setCompleto]=useState(leerCompleto)
+  const verCompleto=v=>{setCompleto(v);guardarCompleto(v)}
+  const turno=completo?null:(turnoManual||turnoAuto)
   const hayTurnos=activeSty.some(s=>s.shift&&s.shift!=='ambos')||(data.schedules||[]).length>0
   const salAncla=salonSchedule.find(x=>x.day_of_week===anchor.getDay())
   const trabajaEn=(s,t)=>{
@@ -580,8 +586,9 @@ function CalendarView({data,onCancel,onApptAdded,onAddBlock,salonSchedule=[],loc
       <div><h1 style={{fontSize:24,fontWeight:900}}>Calendario</h1><p style={{fontSize:13,color:'var(--text3)'}}>{isSingleBarber?'Vista semanal':'Vista diaria'} · {numDays} día{numDays!==1?'s':''}</p></div>
       <div style={{display:'flex',gap:8,alignItems:'center',flexWrap:'wrap'}}>
         {!lockedStylistId&&hayTurnos&&<div style={{display:'flex',border:'1.5px solid var(--border2)',borderRadius:9,overflow:'hidden',boxShadow:'var(--shadow)'}}>
-          {['TM','TT'].map(t=><button key={t} onClick={()=>setTurnoManual(turnoManual===t?null:t)} title={t==='TM'?'Turno de mañana':'Turno de tarde'} style={{padding:'8px 13px',fontSize:13,fontWeight:700,fontFamily:'inherit',border:'none',cursor:'pointer',background:turno===t?'var(--purple-grad)':'var(--white)',color:turno===t?'#fff':'var(--text3)'}}>{t}</button>)}
-          {turnoManual&&<button onClick={()=>setTurnoManual(null)} title="Volver al turno automático según la hora" style={{padding:'8px 10px',fontSize:11,fontFamily:'inherit',border:'none',borderLeft:'1.5px solid var(--border2)',cursor:'pointer',background:'var(--white)',color:'var(--text3)'}}>auto</button>}
+          <button onClick={()=>verCompleto(true)} title="Ver la jornada entera con todo el equipo" style={{padding:'8px 13px',fontSize:13,fontWeight:700,fontFamily:'inherit',border:'none',cursor:'pointer',background:completo?'var(--purple-grad)':'var(--white)',color:completo?'#fff':'var(--text3)'}}>Todo</button>
+          {['TM','TT'].map(t=><button key={t} onClick={()=>{verCompleto(false);setTurnoManual(t)}} title={t==='TM'?'Turno de mañana':'Turno de tarde'} style={{padding:'8px 13px',fontSize:13,fontWeight:700,fontFamily:'inherit',border:'none',borderLeft:'1.5px solid var(--border2)',cursor:'pointer',background:!completo&&turno===t?'var(--purple-grad)':'var(--white)',color:!completo&&turno===t?'#fff':'var(--text3)'}}>{t}</button>)}
+          {!completo&&turnoManual&&<button onClick={()=>setTurnoManual(null)} title="Volver al turno que toca según la hora" style={{padding:'8px 10px',fontSize:11,fontFamily:'inherit',border:'none',borderLeft:'1.5px solid var(--border2)',cursor:'pointer',background:'var(--white)',color:'var(--text3)'}}>auto</button>}
         </div>}
         {!lockedStylistId&&<TeamDropdown stylists={delTurno} selected={delTurno.filter(s=>!ocultos.includes(s.id)).map(s=>s.id)} onChange={ocultar}/>}
         {!lockedStylistId&&alvaroSty&&<button onClick={()=>setAlvaroMode(m=>!m)} style={{display:'flex',alignItems:'center',gap:6,padding:'8px 14px',fontSize:13,fontWeight:700,fontFamily:'inherit',background:alvaroMode?'var(--purple-grad)':'var(--white)',border:'1.5px solid var(--border2)',borderRadius:9,cursor:'pointer',color:alvaroMode?'#fff':'var(--text)',boxShadow:alvaroMode?'0 2px 8px rgba(105,107,198,0.3)':'var(--shadow)',transition:'all .2s'}}>
