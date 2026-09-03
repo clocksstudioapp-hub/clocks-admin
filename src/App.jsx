@@ -1460,18 +1460,21 @@ function ShiftEditModal({sty,date,current,sal,isOverride,onSaveRecurring,onSaveO
   const vals=()=>({active,start_time:start,end_time:end,break_start:hasBreak?bs:null,break_end:hasBreak?be:null})
   const valid=!active||(end>start&&(!hasBreak||be>bs))
   // Un clic y listo: pone las horas del turno y guarda, sin tocar los campos.
-  const aplicarTurno=t=>{
+  const[err,setErr]=useState('')
+  const aplicarTurno=async t=>{
     const h=horasTurno(sal,t)
     if(!h)return
+    setErr('')
     const v={active:true,start_time:h.start_time,end_time:h.end_time,break_start:null,break_end:null}
-    if(scope==='recurring')onSaveRecurring(sty.id,dow,v,dk)
-    else onSaveOverride(sty.id,dk,v)
+    const e=scope==='recurring'?await onSaveRecurring(sty.id,dow,v,dk):await onSaveOverride(sty.id,dk,v)
+    if(e){setErr(e.message||JSON.stringify(e));return}
     onClose()
   }
 
-  const save=()=>{
-    if(scope==='recurring')onSaveRecurring(sty.id,dow,vals(),dk)
-    else onSaveOverride(sty.id,dk,vals())
+  const save=async()=>{
+    setErr('')
+    const e=scope==='recurring'?await onSaveRecurring(sty.id,dow,vals(),dk):await onSaveOverride(sty.id,dk,vals())
+    if(e){setErr(e.message||JSON.stringify(e));return}
     onClose()
   }
   const selStyle={padding:'8px 28px 8px 10px',fontSize:13,border:'1.5px solid var(--border2)',borderRadius:8,background:'var(--white)',color:'var(--text)',fontFamily:'inherit',cursor:'pointer'}
@@ -1519,6 +1522,7 @@ function ShiftEditModal({sty,date,current,sal,isOverride,onSaveRecurring,onSaveO
           <span style={{fontSize:13,fontWeight:600,color:scope===id?'var(--purple)':'var(--text)'}}>{l}</span>
         </button>)}
     </div>
+    {err&&<div style={{padding:'10px 12px',background:'var(--red-bg)',border:'1px solid rgba(220,38,38,0.2)',borderRadius:9,marginBottom:12,fontSize:13,color:'var(--red)',fontWeight:600}}>⚠️ No se pudo guardar: {err}</div>}
     <div style={{display:'flex',gap:8}}><Btn variant="secondary" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={save} disabled={!valid} style={{flex:1}}>Guardar</Btn></div>
   </Modal>
 }
@@ -2161,13 +2165,18 @@ export default function App(){
   const addClosure=async d=>{await supabase.from('salon_closures').insert(d);loadAll()}
   const delClosure=async id=>{await supabase.from('salon_closures').delete().eq('id',id);loadAll()}
   const saveShiftRecurring=async(stylistId,dow,vals,clearDate)=>{
-    await supabase.from('stylist_schedules').upsert({stylist_id:stylistId,day_of_week:dow,...vals},{onConflict:'stylist_id,day_of_week'})
+    // Devuelve el error en vez de tragárselo: sin el índice único sobre
+    // (stylist_id, day_of_week) este upsert fallaba y el modal se cerraba como
+    // si hubiera guardado.
+    const{error}=await supabase.from('stylist_schedules').upsert({stylist_id:stylistId,day_of_week:dow,...vals},{onConflict:'stylist_id,day_of_week'})
+    if(error)return error
     // al fijar el recurrente, borra la excepción de esa fecha para no dejar contradicciones
     if(clearDate) await supabase.from('schedule_overrides').delete().eq('stylist_id',stylistId).eq('override_date',clearDate)
     loadAll()
   }
   const saveShiftOverride=async(stylistId,date,vals)=>{
-    await supabase.from('schedule_overrides').upsert({stylist_id:stylistId,override_date:date,...vals},{onConflict:'stylist_id,override_date'})
+    const{error}=await supabase.from('schedule_overrides').upsert({stylist_id:stylistId,override_date:date,...vals},{onConflict:'stylist_id,override_date'})
+    if(error)return error
     loadAll()
   }
 
