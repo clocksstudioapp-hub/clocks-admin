@@ -422,6 +422,21 @@ const turnoPorHora=(sched,now=new Date())=>{
 }
 const enTurno=(s,turno)=>!turno||!s.shift||s.shift==='ambos'||s.shift===turno
 
+// Horas de cada turno para un día, deducidas del horario del salón: TM va de la
+// apertura al descanso y TT del descanso al cierre. Sin descanso no hay frontera
+// y ese día no se puede repartir.
+const horasTurno=(sal,turno)=>{
+  if(!sal||!sal.active||!sal.break_start||!sal.break_end)return null
+  return turno==='TM'
+    ?{start_time:sal.open_time.slice(0,5),end_time:sal.break_start.slice(0,5)}
+    :{start_time:sal.break_end.slice(0,5),end_time:sal.close_time.slice(0,5)}
+}
+// A qué turno pertenece un horario ya guardado: antes del descanso es mañana.
+const turnoDeSched=(sc,sal)=>{
+  if(!sc||sc.active===false||!sc.start_time||!(sal&&sal.break_start))return null
+  return sc.start_time.slice(0,5)<sal.break_start.slice(0,5)?'TM':'TT'
+}
+
 // Los profesionales que el admin esconde a mano se guardan en el propio
 // navegador: es una preferencia de vista, no un dato del salón.
 const OCULTOS_KEY='clocks-admin:agenda-ocultos'
@@ -449,8 +464,16 @@ function CalendarView({data,onCancel,onApptAdded,onAddBlock,salonSchedule=[],loc
   const schedHoy=salonSchedule.find(x=>x.day_of_week===new Date().getDay())
   const turnoAuto=turnoPorHora(schedHoy)
   const turno=turnoManual||turnoAuto
-  const hayTurnos=activeSty.some(s=>s.shift&&s.shift!=='ambos')
-  const delTurno=hayTurnos?activeSty.filter(s=>enTurno(s,turno)):activeSty
+  const hayTurnos=activeSty.some(s=>s.shift&&s.shift!=='ambos')||(data.schedules||[]).length>0
+  const salAncla=salonSchedule.find(x=>x.day_of_week===anchor.getDay())
+  const trabajaEn=(s,t)=>{
+    if(!t)return true
+    const sc=(data.schedules||[]).find(x=>x.stylist_id===s.id&&x.day_of_week===anchor.getDay())
+    if(sc&&sc.active===false)return false
+    const propio=turnoDeSched(sc,salAncla)
+    return propio?propio===t:enTurno(s,t)
+  }
+  const delTurno=hayTurnos?activeSty.filter(s=>trabajaEn(s,turno)):activeSty
 
   const ocultar=ids=>{
     // Solo se toca la parte del turno visible; quien esté oculto en el otro
@@ -1421,11 +1444,11 @@ function TurnosView({data,onSaveRecurring,onSaveOverride}){
         </tbody>
       </table>
     </div>
-    {edit&&<ShiftEditModal sty={edit.sty} date={edit.date} current={eff(edit.sty,edit.date)} isOverride={!!overrides.find(o=>o.stylist_id===edit.sty.id&&o.override_date===toK(edit.date))} onSaveRecurring={onSaveRecurring} onSaveOverride={onSaveOverride} onClose={()=>setEdit(null)}/>}
+    {edit&&<ShiftEditModal sty={edit.sty} date={edit.date} current={eff(edit.sty,edit.date)} sal={(data.salonSchedule||[]).find(x=>x.day_of_week===edit.date.getDay())} isOverride={!!overrides.find(o=>o.stylist_id===edit.sty.id&&o.override_date===toK(edit.date))} onSaveRecurring={onSaveRecurring} onSaveOverride={onSaveOverride} onClose={()=>setEdit(null)}/>}
   </div>
 }
 
-function ShiftEditModal({sty,date,current,isOverride,onSaveRecurring,onSaveOverride,onClose}){
+function ShiftEditModal({sty,date,current,sal,isOverride,onSaveRecurring,onSaveOverride,onClose}){
   const dow=date.getDay(), dk=toK(date)
   const[active,setActive]=useState(current?current.active:true)
   const[start,setStart]=useState(current?current.start_time.slice(0,5):'09:00')
@@ -1436,6 +1459,16 @@ function ShiftEditModal({sty,date,current,isOverride,onSaveRecurring,onSaveOverr
   const[scope,setScope]=useState(isOverride?'week':'recurring')
   const vals=()=>({active,start_time:start,end_time:end,break_start:hasBreak?bs:null,break_end:hasBreak?be:null})
   const valid=!active||(end>start&&(!hasBreak||be>bs))
+  // Un clic y listo: pone las horas del turno y guarda, sin tocar los campos.
+  const aplicarTurno=t=>{
+    const h=horasTurno(sal,t)
+    if(!h)return
+    const v={active:true,start_time:h.start_time,end_time:h.end_time,break_start:null,break_end:null}
+    if(scope==='recurring')onSaveRecurring(sty.id,dow,v,dk)
+    else onSaveOverride(sty.id,dk,v)
+    onClose()
+  }
+
   const save=()=>{
     if(scope==='recurring')onSaveRecurring(sty.id,dow,vals(),dk)
     else onSaveOverride(sty.id,dk,vals())
@@ -1445,6 +1478,20 @@ function ShiftEditModal({sty,date,current,isOverride,onSaveRecurring,onSaveOverr
   return<Modal onClose={onClose}>
     <h3 style={{fontSize:18,fontWeight:900,marginBottom:4}}>Turno de {sty.name}</h3>
     <p style={{fontSize:13,color:'var(--text3)',marginBottom:16}}>{DOW_NAME[dow]} · {fS(date)}</p>
+
+    {horasTurno(sal,'TM')
+      ?<div style={{marginBottom:18}}>
+        <div style={{fontSize:11,fontWeight:700,color:'var(--text3)',textTransform:'uppercase',letterSpacing:'0.05em',marginBottom:7}}>Turno · un clic y guarda</div>
+        <div style={{display:'flex',gap:8}}>
+          {['TM','TT'].map(t=>{const h=horasTurno(sal,t)
+            return<button key={t} onClick={()=>aplicarTurno(t)} style={{flex:1,padding:'11px 8px',borderRadius:10,border:'1.5px solid var(--border2)',background:'var(--white)',cursor:'pointer',fontFamily:'inherit'}}>
+              <div style={{fontSize:14,fontWeight:800,color:'var(--purple)'}}>{t==='TM'?'Mañana':'Tarde'}</div>
+              <div style={{fontSize:11,color:'var(--text3)',marginTop:2}}>{h.start_time} – {h.end_time}</div>
+            </button>})}
+        </div>
+        <div style={{fontSize:11,color:'var(--text3)',marginTop:6}}>Horas tomadas del horario del salón de este día. Debajo puedes afinarlas a mano.</div>
+      </div>
+      :<div style={{marginBottom:18,padding:'10px 12px',background:'var(--yellow-bg)',borderRadius:9,fontSize:12,color:'var(--yellow)',fontWeight:600,lineHeight:1.5}}>Este día no tiene descanso configurado en el horario del salón, así que no hay frontera entre mañana y tarde. Ponlo en Horario salón y aquí aparecerán los botones de turno.</div>}
     <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}>
       <button onClick={()=>setActive(!active)} style={{width:40,height:22,borderRadius:11,border:'none',cursor:'pointer',background:active?'var(--purple)':'var(--border)',position:'relative',transition:'all .3s'}}><div style={{width:18,height:18,borderRadius:9,background:'#fff',position:'absolute',top:2,left:active?20:2,transition:'all .3s',boxShadow:'0 1px 2px rgba(0,0,0,0.15)'}}/></button>
       <span style={{fontSize:13,fontWeight:600}}>{active?'Trabaja':'Día libre'}</span>
@@ -1552,13 +1599,13 @@ function StyModal({d,onSave,onClose}){
   const[n,sN]=useState(d.name||''),[u,sU]=useState(d.username||''),[r,sR]=useState(d.role_title||'Barbero'),[p,sP]=useState(d.photo_url||''),[a,sA]=useState(d.active!==false)
   const[sh,sSh]=useState(d.shift||'ambos')
   const[saving,setSaving]=useState(false),[err,setErr]=useState('')
-  const submit=async()=>{setSaving(true);setErr('');const e=await onSave({...d,name:n,username:u,role_title:r,photo_url:p,active:a,shift:sh});setSaving(false);if(e)setErr(e.message||JSON.stringify(e))}
+  const submit=async()=>{setSaving(true);setErr('');const e=await onSave({...d,name:n,username:u,role_title:r,photo_url:p,active:a,shift:sh,applyShift:sh!==(d.shift||'ambos')});setSaving(false);if(e)setErr(e.message||JSON.stringify(e))}
   return<Modal onClose={onClose}><h3 style={{fontSize:18,fontWeight:900,marginBottom:16}}>{d.id?'Editar':'Nuevo'} profesional</h3><Inp label="Nombre" required value={n} onChange={e=>sN(e.target.value)}/><Inp label="Username" value={u} onChange={e=>sU(e.target.value)} placeholder="@user"/><Inp label="Rol" value={r} onChange={e=>sR(e.target.value)}/><Inp label="URL foto" value={p} onChange={e=>sP(e.target.value)} placeholder="/images/team-nombre.jpg"/>{p&&<div style={{marginBottom:10,width:50,height:50,borderRadius:10,overflow:'hidden',background:'var(--bg)'}}><img src={p} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/></div>}<div style={{marginBottom:14}}>
     <div style={{fontSize:13,fontWeight:600,marginBottom:6}}>Turno</div>
     <div style={{display:'flex',gap:6}}>
       {[['TM','Mañana'],['TT','Tarde'],['ambos','Ambos']].map(([v,lbl])=><button key={v} onClick={()=>sSh(v)} style={{flex:1,padding:'9px 6px',fontSize:13,fontWeight:700,fontFamily:'inherit',borderRadius:9,cursor:'pointer',border:'1.5px solid '+(sh===v?'transparent':'var(--border2)'),background:sh===v?'var(--purple-grad)':'var(--white)',color:sh===v?'#fff':'var(--text2)'}}>{lbl}</button>)}
     </div>
-    <div style={{fontSize:11,color:'var(--text3)',marginTop:6}}>Determina en qué franja aparece en la agenda. "Ambos" sale siempre.</div>
+    <div style={{fontSize:11,color:'var(--text3)',marginTop:6}}>Al cambiarlo se rellena toda su semana con ese turno. Después puedes afinar días sueltos en la pestaña Turnos. "Ambos" no toca los horarios.</div>
   </div>
   <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}><span style={{fontSize:13}}>Activo</span><button onClick={()=>sA(!a)} style={{width:40,height:22,borderRadius:11,border:'none',cursor:'pointer',background:a?'var(--purple)':'var(--border)',position:'relative',transition:'all .3s'}}><div style={{width:18,height:18,borderRadius:9,background:'#fff',position:'absolute',top:2,left:a?20:2,transition:'all .3s',boxShadow:'0 1px 2px rgba(0,0,0,0.15)'}}/></button></div>{err&&<div style={{padding:'10px 12px',background:'var(--red-bg)',border:'1px solid rgba(220,38,38,0.2)',borderRadius:9,marginBottom:12,fontSize:13,color:'var(--red)',fontWeight:600}}>⚠️ {err}</div>}<div style={{display:'flex',gap:8}}><Btn variant="secondary" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={submit} disabled={saving||!n.trim()} style={{flex:1}}>{saving?'Guardando...':'Guardar'}</Btn></div></Modal>
 }
@@ -2087,7 +2134,21 @@ export default function App(){
   const rmBlock=async id=>{await supabase.from('blocked_slots').delete().eq('id',id);loadAll()}
   const saveSvc=async d=>{if(d.id){await supabase.from('services').update({name:d.name,description:d.description,duration:d.duration,price:d.price,category:d.category}).eq('id',d.id)}else{const mx=services.reduce((m,s)=>Math.max(m,s.display_order||0),0);await supabase.from('services').insert({...d,display_order:mx+1,active:true})}loadAll()}
   const delSvc=async id=>{await supabase.from('services').delete().eq('id',id);loadAll()}
-  const saveSty=async d=>{let err;if(d.id){const r=await supabase.from('stylists').update({name:d.name,username:d.username,role_title:d.role_title,photo_url:d.photo_url,active:d.active,shift:d.shift||'ambos'}).eq('id',d.id);err=r.error}else{const mx=stylists.reduce((m,s)=>Math.max(m,s.display_order||0),0);const r=await supabase.from('stylists').insert({...d,display_order:mx+1,active:true});err=r.error}if(!err)loadAll();return err}
+  const saveSty=async d=>{
+    let err
+    if(d.id){const r=await supabase.from('stylists').update({name:d.name,username:d.username,role_title:d.role_title,photo_url:d.photo_url,active:d.active,shift:d.shift||'ambos'}).eq('id',d.id);err=r.error}
+    else{const mx=stylists.reduce((m,s)=>Math.max(m,s.display_order||0),0);const {applyShift,...ins}=d;const r=await supabase.from('stylists').insert({...ins,display_order:mx+1,active:true});err=r.error}
+    // El turno general de la ficha rellena la semana entera con las horas de esa
+    // franja. Solo cuando cambia, para no repisar los días afinados a mano.
+    if(!err&&d.id&&d.applyShift&&d.shift&&d.shift!=='ambos'){
+      for(const sal of salonSchedule.filter(x=>x.active&&x.break_start&&x.break_end)){
+        const h=horasTurno(sal,d.shift)
+        if(h)await supabase.from('stylist_schedules').upsert({stylist_id:d.id,day_of_week:sal.day_of_week,active:true,start_time:h.start_time,end_time:h.end_time,break_start:null,break_end:null},{onConflict:'stylist_id,day_of_week'})
+      }
+    }
+    if(!err)loadAll()
+    return err
+  }
   const delSty=async id=>{await supabase.from('stylists').delete().eq('id',id);loadAll()}
   const addExpense=async d=>{await supabase.from('expenses').insert({...d,created_by:user.id});loadAll()}
   const delExpense=async id=>{await supabase.from('expenses').delete().eq('id',id);loadAll()}
