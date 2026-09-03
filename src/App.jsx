@@ -502,7 +502,19 @@ function CalendarView({data,onCancel,onApptAdded,onAddBlock,salonSchedule=[],loc
     ?`${fS(days[0])} — ${fS(days[numDays-1])}`
     :numDays===1?fDF(days[0]):`${fS(days[0])} — ${fS(days[numDays-1])}`
 
-  const SLOT_H=26,START_H=10,END_H=20
+  // El eje de horas sigue al turno: en TM sólo se pintan las horas de la mañana
+  // y en TT las de la tarde, en vez de las diez del salón con media pantalla en
+  // blanco. Sin turno (o sin descanso ese día) se pinta la jornada completa.
+  const hDec=t=>t?Number(t.slice(0,2))+Number(t.slice(3,5))/60:null
+  const[START_H,END_H]=(()=>{
+    const abre=hDec(salAncla&&salAncla.open_time), cierra=hDec(salAncla&&salAncla.close_time)
+    const bs=hDec(salAncla&&salAncla.break_start), be=hDec(salAncla&&salAncla.break_end)
+    const jornada=[Math.floor(abre!=null?abre:10),Math.ceil(cierra!=null?cierra:20)]
+    if(!turno||bs==null||be==null)return jornada
+    const r=turno==='TM'?[Math.floor(abre!=null?abre:10),Math.ceil(bs)]:[Math.floor(be),Math.ceil(cierra!=null?cierra:20)]
+    return r[1]>r[0]?r:jornada
+  })()
+  const SLOT_H=26
   const TOTAL_SLOTS=(END_H-START_H)*2
   const timelineH=TOTAL_SLOTS*SLOT_H
   const timeToY=t=>{const[h,m]=t.split(':').map(Number);return((h*60+m-START_H*60)/30)*SLOT_H}
