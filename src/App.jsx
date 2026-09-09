@@ -1680,15 +1680,16 @@ function TeamView({data,onSave,onDel,onLink,onUnlink,onReload}){
               {s.photo_url?<img src={s.photo_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/>:(s.name||'?').trim().charAt(0).toUpperCase()}
             </div>
             <div style={{minWidth:0,flex:1}}>
-              <div style={{fontSize:15,fontWeight:800,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.name}</div>
-              <div style={{fontSize:11,fontWeight:700,letterSpacing:'0.02em',color:pl?pl.color:'var(--text3)',marginTop:2}}>{pl?pl.label:'Sin plan asignado'}</div>
-            </div>
-            <div style={{display:'flex',alignItems:'center',gap:6,flexShrink:0}}>
-              {cs.slice(0,1).map(c=><span key={c.id} title={cs.map(x=>x.name).join(' · ')} style={{fontSize:11,fontWeight:700,padding:'4px 10px',borderRadius:20,whiteSpace:'nowrap',color:c.is_current?'var(--green)':'var(--text3)',background:c.is_current?'var(--green-bg)':'var(--bg)',border:'1px solid '+(c.is_current?'rgba(22,163,74,0.25)':'var(--border)')}}>{abrevEdicion(c.name)}</span>)}
-              {cs.length>1&&<span title={cs.map(x=>x.name).join(' · ')} style={{fontSize:11,fontWeight:700,padding:'4px 7px',borderRadius:20,color:'var(--text3)',background:'var(--bg)',border:'1px solid var(--border)'}}>+{cs.length-1}</span>}
-              {cs.length===0&&<span title="Sin edición asignada" style={{fontSize:11,fontWeight:700,padding:'4px 9px',borderRadius:20,color:'var(--text3)',background:'var(--bg)',border:'1px dashed var(--border2)'}}>—</span>}
-              {s.shift&&s.shift!=='ambos'&&<span title={s.shift==='TM'?'Turno de mañana':'Turno de tarde'} style={{fontSize:11,fontWeight:800,color:'#fff',background:'var(--purple-grad)',padding:'5px 9px',borderRadius:9}}>{s.shift}</span>}
-              {!s.active&&<span style={{fontSize:10,fontWeight:700,color:'var(--text3)',background:'var(--bg)',padding:'4px 8px',borderRadius:9}}>Inactivo</span>}
+              <div style={{display:'flex',alignItems:'center',gap:8}}>
+                <span style={{fontSize:15,fontWeight:800,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap',flex:1,minWidth:0}}>{s.name}</span>
+                {s.shift&&s.shift!=='ambos'&&<span title={s.shift==='TM'?'Turno de mañana':'Turno de tarde'} style={{fontSize:11,fontWeight:800,color:'#fff',background:'var(--purple-grad)',padding:'3px 8px',borderRadius:8,flexShrink:0}}>{s.shift}</span>}
+              </div>
+              <div style={{display:'flex',alignItems:'center',gap:7,marginTop:4,flexWrap:'wrap'}}>
+                <span style={{fontSize:11,fontWeight:700,color:pl?pl.color:'var(--text3)'}}>{pl?pl.label:'Sin plan'}</span>
+                {cs.slice(0,1).map(c=><span key={c.id} title={cs.map(x=>x.name).join(' · ')} style={{fontSize:10,fontWeight:700,padding:'2px 8px',borderRadius:20,whiteSpace:'nowrap',color:c.is_current?'var(--green)':'var(--text3)',background:c.is_current?'var(--green-bg)':'var(--bg)',border:'1px solid '+(c.is_current?'rgba(22,163,74,0.25)':'var(--border)')}}>{abrevEdicion(c.name)}</span>)}
+                {cs.length>1&&<span title={cs.map(x=>x.name).join(' · ')} style={{fontSize:10,fontWeight:700,padding:'2px 6px',borderRadius:20,color:'var(--text3)',background:'var(--bg)',border:'1px solid var(--border)'}}>+{cs.length-1}</span>}
+                {!s.active&&<span title="No aparece en la agenda ni se le pueden reservar citas" style={{fontSize:10,fontWeight:800,color:'var(--red)',background:'var(--red-bg)',padding:'2px 8px',borderRadius:20}}>Inactivo</span>}
+              </div>
             </div>
           </div>
 
@@ -1740,10 +1741,17 @@ function StyModal({d,courses=[],enrolled=[],onSave,onClose}){
   const[sh,sSh]=useState(d.shift||'ambos')
   const[cids,sCids]=useState(enrolled)
   const[saving,setSaving]=useState(false),[err,setErr]=useState('')
-  const submit=async()=>{setSaving(true);setErr('');const e=await onSave({...d,name:n,role_title:r,photo_url:p,active:a,shift:sh,courseIds:cids});setSaving(false);if(e)setErr(e.message||JSON.stringify(e))}
-  return<Modal onClose={onClose}><h3 style={{fontSize:18,fontWeight:900,marginBottom:16}}>{d.id?'Editar':'Nuevo'} profesional</h3><Inp label="Nombre" required value={n} onChange={e=>sN(e.target.value)}/><Inp label="Rol" value={r} onChange={e=>sR(e.target.value)}/><Inp label="URL foto" value={p} onChange={e=>sP(e.target.value)} placeholder="/images/team-nombre.jpg"/>{p&&<div style={{marginBottom:10,width:50,height:50,borderRadius:10,overflow:'hidden',background:'var(--bg)'}}><img src={p} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/></div>}<div style={{marginBottom:14}}>
-    <div style={{fontSize:13,fontWeight:600,marginBottom:6}}>Ediciones</div>
-  </div>
+  // Guardar llegó a desactivar gente sin que nadie se diera cuenta: si la ficha
+  // pasa de activa a inactiva, hay que confirmarlo antes de escribir.
+  const desactivando=d.id&&d.active!==false&&!a
+  const[confirmado,setConfirmado]=useState(false)
+  const submit=async()=>{
+    if(desactivando&&!confirmado){setConfirmado(true);return}
+    setSaving(true);setErr('')
+    const e=await onSave({...d,name:n,role_title:r,photo_url:p,active:a,shift:sh,courseIds:cids})
+    setSaving(false);if(e)setErr(e.message||JSON.stringify(e))
+  }
+  return<Modal onClose={onClose}><h3 style={{fontSize:18,fontWeight:900,marginBottom:16}}>{d.id?'Editar':'Nuevo'} profesional</h3><Inp label="Nombre" required value={n} onChange={e=>sN(e.target.value)}/><Inp label="Rol" value={r} onChange={e=>sR(e.target.value)}/><Inp label="URL foto" value={p} onChange={e=>sP(e.target.value)} placeholder="/images/team-nombre.jpg"/>{p&&<div style={{marginBottom:10,width:50,height:50,borderRadius:10,overflow:'hidden',background:'var(--bg)'}}><img src={p} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/></div>}
   {courses.length>0&&<div style={{marginBottom:14}}>
     <div style={{fontSize:13,fontWeight:600,marginBottom:6}}>Ediciones</div>
     <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
@@ -1761,7 +1769,7 @@ function StyModal({d,courses=[],enrolled=[],onSave,onClose}){
     </div>
     <div style={{fontSize:11,color:'var(--text3)',marginTop:6}}>Manda en toda su semana, tanto en la agenda como en lo que puede reservar un cliente. Para un día suelto, ponle una excepción en la pestaña Turnos.</div>
   </div>
-  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}><span style={{fontSize:13}}>Activo</span><button onClick={()=>sA(!a)} style={{width:40,height:22,borderRadius:11,border:'none',cursor:'pointer',background:a?'var(--purple)':'var(--border)',position:'relative',transition:'all .3s'}}><div style={{width:18,height:18,borderRadius:9,background:'#fff',position:'absolute',top:2,left:a?20:2,transition:'all .3s',boxShadow:'0 1px 2px rgba(0,0,0,0.15)'}}/></button></div>{err&&<div style={{padding:'10px 12px',background:'var(--red-bg)',border:'1px solid rgba(220,38,38,0.2)',borderRadius:9,marginBottom:12,fontSize:13,color:'var(--red)',fontWeight:600}}>⚠️ {err}</div>}<div style={{display:'flex',gap:8}}><Btn variant="secondary" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={submit} disabled={saving||!n.trim()} style={{flex:1}}>{saving?'Guardando...':'Guardar'}</Btn></div></Modal>
+  <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}><span style={{fontSize:13}}>Activo</span><button onClick={()=>sA(!a)} style={{width:40,height:22,borderRadius:11,border:'none',cursor:'pointer',background:a?'var(--purple)':'var(--border)',position:'relative',transition:'all .3s'}}><div style={{width:18,height:18,borderRadius:9,background:'#fff',position:'absolute',top:2,left:a?20:2,transition:'all .3s',boxShadow:'0 1px 2px rgba(0,0,0,0.15)'}}/></button></div>{err&&<div style={{padding:'10px 12px',background:'var(--red-bg)',border:'1px solid rgba(220,38,38,0.2)',borderRadius:9,marginBottom:12,fontSize:13,color:'var(--red)',fontWeight:600}}>⚠️ {err}</div>}{desactivando&&confirmado&&<div style={{padding:'11px 13px',background:'var(--red-bg)',border:'1px solid rgba(220,38,38,0.25)',borderRadius:9,marginBottom:12,fontSize:13,color:'var(--red)',fontWeight:600,lineHeight:1.5}}>⚠️ Vas a desactivar a {d.name}: dejará de salir en la agenda y nadie podrá reservarle cita.</div>}<div style={{display:'flex',gap:8}}><Btn variant="secondary" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn variant={desactivando&&confirmado?'danger':undefined} onClick={submit} disabled={saving||!n.trim()} style={{flex:1}}>{saving?'Guardando...':desactivando?(confirmado?'Sí, desactivar':'Guardar y desactivar'):'Guardar'}</Btn></div></Modal>
 }
 
 // ═══ CF JUVENTUD ═══
