@@ -1594,22 +1594,6 @@ function TeamView({data,onSave,onDel,onLink,onUnlink,onReload}){
   const cuenta=f=>stylists.filter(s=>estado(s)===f).length
   const lista=stylists.filter(s=>filtro==='todos'||estado(s)===filtro)
 
-  // Horario compacto: los días que abre el salón en los que esta persona no
-  // tiene marcado día libre, y las horas de su turno.
-  const horarioCompacto=s=>{
-    const abiertos=salonSchedule.filter(d=>d.active)
-    if(!abiertos.length)return null
-    const dias=abiertos.filter(d=>{
-      const sc=schedules.find(x=>x.stylist_id===s.id&&x.day_of_week===d.day_of_week)
-      return sc?sc.active!==false:true
-    })
-    if(!dias.length)return 'Sin días asignados'
-    const sal=dias[0], hm=t=>(t||'').slice(0,5)
-    const horas=s.shift==='TM'&&sal.break_start?hm(sal.open_time)+'–'+hm(sal.break_start)
-      :s.shift==='TT'&&sal.break_end?hm(sal.break_end)+'–'+hm(sal.close_time)
-      :hm(sal.open_time)+'–'+hm(sal.close_time)
-    return dias.map(d=>DOW_INI[d.day_of_week]).join(' ')+' · '+horas
-  }
 
   const guardarCurso=async(c,campos)=>{
     if(c.id)await supabase.from('courses').update(campos).eq('id',c.id)
@@ -1658,35 +1642,49 @@ function TeamView({data,onSave,onDel,onLink,onUnlink,onReload}){
 
     <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:14}}>
       {lista.map(s=>{
-        const cs=cursosDe(s.id), hor=horarioCompacto(s)
-        return<div key={s.id} className="fade" style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',padding:16,boxShadow:'var(--shadow)',opacity:s.active?1:0.6}}>
-          <div style={{display:'flex',alignItems:'center',gap:11,marginBottom:12}}>
-            <div style={{width:44,height:44,borderRadius:11,background:'var(--purple-bg)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:17,fontWeight:700,color:'var(--purple)',overflow:'hidden',flexShrink:0}}>
-              {s.photo_url?<img src={s.photo_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/>:(s.name||'?')[0]}
+        const cs=cursosDe(s.id), pl=planDe(s)
+        const abiertos=salonSchedule.filter(d=>d.active)
+        const trabaja=d=>{const sc=schedules.find(x=>x.stylist_id===s.id&&x.day_of_week===d.day_of_week);return sc?sc.active!==false:true}
+        const hm=t=>(t||'').slice(0,5)
+        const ref=abiertos.find(trabaja)
+        const horas=!ref?null:s.shift==='TM'&&ref.break_start?hm(ref.open_time)+'–'+hm(ref.break_start)
+          :s.shift==='TT'&&ref.break_end?hm(ref.break_end)+'–'+hm(ref.close_time)
+          :hm(ref.open_time)+'–'+hm(ref.close_time)
+        return<div key={s.id} className="fade" style={{background:'var(--white)',borderRadius:16,border:'1.5px solid var(--border)',boxShadow:'var(--shadow)',overflow:'hidden',opacity:s.active?1:0.55,display:'flex',flexDirection:'column'}}>
+
+          <div style={{display:'flex',alignItems:'center',gap:12,padding:'16px 16px 14px'}}>
+            <div style={{width:46,height:46,borderRadius:14,background:pl?pl.bg:'var(--purple-bg)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:800,color:pl?pl.color:'var(--purple)',overflow:'hidden',flexShrink:0}}>
+              {s.photo_url?<img src={s.photo_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/>:(s.name||'?').trim().charAt(0).toUpperCase()}
             </div>
             <div style={{minWidth:0,flex:1}}>
-              <div style={{fontSize:15,fontWeight:700,display:'flex',alignItems:'center',gap:6}}>
-                <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.name}</span>
-                {s.shift&&s.shift!=='ambos'&&<span title={s.shift==='TM'?'Turno de mañana':'Turno de tarde'} style={{fontSize:10,fontWeight:800,color:'var(--purple)',background:'var(--purple-bg2)',padding:'2px 6px',borderRadius:6,flexShrink:0}}>{s.shift}</span>}
-                {!s.active&&<span style={{fontSize:10,fontWeight:700,color:'var(--text3)',background:'var(--bg)',padding:'2px 6px',borderRadius:6,flexShrink:0}}>inactivo</span>}
-              </div>
-              {(()=>{const pl=planDe(s)
-                return<div style={{fontSize:11,fontWeight:700,marginTop:2,color:pl?pl.color:'var(--text3)'}}>{pl?pl.label:'Sin plan asignado'}</div>})()}
+              <div style={{fontSize:15,fontWeight:800,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.name}</div>
+              <div style={{fontSize:11,fontWeight:700,letterSpacing:'0.02em',color:pl?pl.color:'var(--text3)',marginTop:2}}>{pl?pl.label:'Sin plan asignado'}</div>
+            </div>
+            <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:4,flexShrink:0}}>
+              {s.shift&&s.shift!=='ambos'&&<span title={s.shift==='TM'?'Turno de mañana':'Turno de tarde'} style={{fontSize:10,fontWeight:800,color:'#fff',background:'var(--purple-grad)',padding:'3px 8px',borderRadius:7}}>{s.shift}</span>}
+              {!s.active&&<span style={{fontSize:10,fontWeight:700,color:'var(--text3)',background:'var(--bg)',padding:'3px 8px',borderRadius:7}}>Inactivo</span>}
             </div>
           </div>
 
-          <div style={{fontSize:12,color:'var(--text2)',background:'var(--bg)',borderRadius:8,padding:'7px 10px',marginBottom:10}}>
-            🕐 {hor||'Sin horario del salón configurado'}
+          <div style={{display:'flex',alignItems:'center',justifyContent:'space-between',gap:10,padding:'10px 16px',borderTop:'1px solid var(--border)',borderBottom:'1px solid var(--border)',background:'var(--bg)'}}>
+            <div style={{display:'flex',gap:3}}>
+              {abiertos.length===0
+                ?<span style={{fontSize:11,color:'var(--text3)'}}>Sin horario de salón</span>
+                :abiertos.map(d=>{const on=trabaja(d)
+                  return<span key={d.day_of_week} title={on?'Trabaja':'Día libre'} style={{width:19,height:19,borderRadius:6,display:'flex',alignItems:'center',justifyContent:'center',fontSize:10,fontWeight:800,color:on?'var(--purple)':'var(--text3)',background:on?'var(--purple-bg2)':'transparent',border:on?'none':'1px dashed var(--border2)'}}>{DOW_INI[d.day_of_week]}</span>})}
+            </div>
+            <span style={{fontSize:12,fontWeight:700,color:horas?'var(--text2)':'var(--text3)',whiteSpace:'nowrap'}}>{horas||'—'}</span>
           </div>
 
-          <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:12,minHeight:22}}>
-            {cs.length===0&&<span style={{fontSize:11,color:'var(--text3)'}}>Sin edición asignada</span>}
-            {cs.map(c=><span key={c.id} style={{fontSize:11,fontWeight:700,padding:'3px 8px',borderRadius:7,color:c.is_current?'var(--green)':'var(--text3)',background:c.is_current?'var(--green-bg)':'var(--bg)'}}>{c.name}</span>)}
-          </div>
-
-          <div style={{display:'flex',gap:6}}>
-            <Btn small variant="secondary" onClick={()=>setEdit(s)} style={{flex:1}}>Editar</Btn>
-            <Btn small variant="danger" onClick={()=>setDel(s)}>✕</Btn>
+          <div style={{padding:'12px 16px 14px',display:'flex',flexDirection:'column',gap:12,flex:1}}>
+            <div style={{display:'flex',flexWrap:'wrap',gap:5,minHeight:20}}>
+              {cs.length===0&&<span style={{fontSize:11,color:'var(--text3)',fontStyle:'italic'}}>Sin edición asignada</span>}
+              {cs.map(c=><span key={c.id} title={c.is_current?'Edición en curso':'Edición cerrada'} style={{fontSize:11,fontWeight:700,padding:'3px 9px',borderRadius:20,color:c.is_current?'var(--green)':'var(--text3)',background:c.is_current?'var(--green-bg)':'var(--bg)',border:'1px solid '+(c.is_current?'rgba(22,163,74,0.2)':'var(--border)')}}>{c.name}</span>)}
+            </div>
+            <div style={{display:'flex',gap:6,marginTop:'auto'}}>
+              <Btn small variant="secondary" onClick={()=>setEdit(s)} style={{flex:1}}>Editar</Btn>
+              <Btn small variant="danger" onClick={()=>setDel(s)}>✕</Btn>
+            </div>
           </div>
         </div>
       })}
