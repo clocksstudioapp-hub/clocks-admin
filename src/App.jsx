@@ -1422,9 +1422,14 @@ const shiftMinutes=sc=>{ if(!sc||!sc.active)return 0; let mins=toMin(sc.end_time
 function TurnosView({data,onSaveRecurring,onSaveOverride}){
   const[weekStart,setWeekStart]=useState(()=>getWeekDays(new Date())[0])
   const[edit,setEdit]=useState(null)
+  const[filtro,setFiltro]=useState('actual')
   const schedules=data.schedules||[], overrides=data.overrides||[]
+  const courses=data.courses||[], enrols=data.enrols||[]
   const days=getWeekDays(weekStart)
-  const actives=data.stylists.filter(s=>s.active)
+  // Con 23 activos la rejilla era ilegible: se filtra por edición igual que en
+  // Equipo, y arranca mostrando solo la promoción en curso.
+  const activos=data.stylists.filter(s=>s.active)
+  const actives=activos.filter(s=>filtro==='todos'||estadoAlumno(s,courses,enrols)===filtro)
   // Horario efectivo: override(fecha) > recurrente(dow) > horario del salón(dow).
   // El fallback al salón mantiene la celda y el total de horas coherentes cuando
   // un profesional aún no tiene turno guardado.
@@ -1464,12 +1469,16 @@ function TurnosView({data,onSaveRecurring,onSaveOverride}){
   const shiftWk=n=>{const x=new Date(weekStart);x.setDate(x.getDate()+n*7);setWeekStart(x)}
   return<div>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20,flexWrap:'wrap',gap:10}}>
-      <div><h2 style={{fontSize:20,fontWeight:900}}>Turnos</h2><p style={{fontSize:13,color:'var(--text3)'}}>Click en una celda para editar · ausencias en rojo · ✱ = excepción de esa semana</p></div>
+      <div><h2 style={{fontSize:20,fontWeight:900}}>Turnos <span style={{fontSize:13,fontWeight:600,color:'var(--text3)'}}>· {actives.length} de {activos.length}</span></h2><p style={{fontSize:13,color:'var(--text3)'}}>Click en una celda para editar · ausencias en rojo · ✱ = excepción de esa semana</p></div>
       <div style={{display:'flex',alignItems:'center',gap:8}}>
         <Btn small variant="secondary" onClick={()=>shiftWk(-1)}>←</Btn>
         <span style={{fontSize:13,fontWeight:700,minWidth:150,textAlign:'center'}}>{fS(days[0])} – {fS(days[6])}</span>
         <Btn small variant="secondary" onClick={()=>shiftWk(1)}>→</Btn>
       </div>
+    </div>
+
+    <div style={{marginBottom:16}}>
+      <FiltroAlumnos valor={filtro} onChange={setFiltro} lista={activos} courses={courses} enrols={enrols}/>
     </div>
     <div style={{overflowX:'auto',background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',boxShadow:'var(--shadow)'}}>
       <table style={{borderCollapse:'collapse',width:'100%',minWidth:780}}>
@@ -1583,6 +1592,22 @@ const DOW_INI=['D','L','M','X','J','V','S']
 const MESES_ABR={enero:'Ene',febrero:'Feb',marzo:'Mar',abril:'Abr',mayo:'May',junio:'Jun',julio:'Jul',agosto:'Ago',septiembre:'Sep',setiembre:'Sep',octubre:'Oct',noviembre:'Nov',diciembre:'Dic'}
 const abrevEdicion=n=>String(n||'').split(' ').map(w=>MESES_ABR[w.toLowerCase()]||w).join(' ')
 
+// En qué situación está un alumno: matriculado en alguna edición en curso,
+// exalumno (tuvo edición pero ninguna en curso) o sin asignar.
+const edicionesDe=(id,courses,enrols)=>enrols.filter(e=>e.stylist_id===id).map(e=>courses.find(c=>c.id===e.course_id)).filter(Boolean)
+const estadoAlumno=(s,courses,enrols)=>{const cs=edicionesDe(s.id,courses,enrols);return !cs.length?'sin':cs.some(c=>c.is_current)?'actual':'ex'}
+const FILTROS_ALUMNO=[['actual','En curso'],['ex','Exalumnos'],['sin','Sin asignar'],['todos','Todos']]
+
+// Botonera de filtro compartida por Equipo y Turnos.
+function FiltroAlumnos({valor,onChange,lista,courses,enrols}){
+  return<div style={{display:'flex',gap:6,flexWrap:'wrap'}}>
+    {FILTROS_ALUMNO.map(([id,lbl])=>{const n=id==='todos'?lista.length:lista.filter(s=>estadoAlumno(s,courses,enrols)===id).length
+      return<button key={id} onClick={()=>onChange(id)} style={{padding:'7px 14px',fontSize:13,fontWeight:700,fontFamily:'inherit',borderRadius:9,cursor:'pointer',border:'1.5px solid '+(valor===id?'transparent':'var(--border2)'),background:valor===id?'var(--purple-grad)':'var(--white)',color:valor===id?'#fff':'var(--text2)'}}>
+        {lbl}<span style={{marginLeft:6,opacity:0.75,fontWeight:600}}>{n}</span>
+      </button>})}
+  </div>
+}
+
 function TeamView({data,onSave,onDel,onLink,onUnlink,onReload}){
   const[edit,setEdit]=useState(null),[del,setDel]=useState(null)
   const[filtro,setFiltro]=useState('actual')
@@ -1593,10 +1618,8 @@ function TeamView({data,onSave,onDel,onLink,onUnlink,onReload}){
   // de ahí en vez de pedirlo otra vez en la ficha.
   const planDe=s=>PLANS.find(p=>p.id===studentCfg.find(c=>c.stylist_id===s.id)?.plan)
 
-  const cursosDe=id=>enrols.filter(e=>e.stylist_id===id).map(e=>courses.find(c=>c.id===e.course_id)).filter(Boolean)
-  const estado=s=>{const cs=cursosDe(s.id);if(!cs.length)return 'sin';return cs.some(c=>c.is_current)?'actual':'ex'}
-  const cuenta=f=>stylists.filter(s=>estado(s)===f).length
-  const lista=stylists.filter(s=>filtro==='todos'||estado(s)===filtro)
+  const cursosDe=id=>edicionesDe(id,courses,enrols)
+  const lista=stylists.filter(s=>filtro==='todos'||estadoAlumno(s,courses,enrols)===filtro)
 
 
   const guardarCurso=async(c,campos)=>{
@@ -1623,8 +1646,6 @@ function TeamView({data,onSave,onDel,onLink,onUnlink,onReload}){
     return null
   }
 
-  const TABS=[['actual','En curso'],['ex','Exalumnos'],['sin','Sin asignar'],['todos','Todos']]
-
   return<div>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:10}}>
       <h1 style={{fontSize:24,fontWeight:900}}>Equipo</h1>
@@ -1634,10 +1655,8 @@ function TeamView({data,onSave,onDel,onLink,onUnlink,onReload}){
       </div>
     </div>
 
-    <div style={{display:'flex',gap:6,marginBottom:18,flexWrap:'wrap'}}>
-      {TABS.map(([id,lbl])=><button key={id} onClick={()=>setFiltro(id)} style={{padding:'7px 14px',fontSize:13,fontWeight:700,fontFamily:'inherit',borderRadius:9,cursor:'pointer',border:'1.5px solid '+(filtro===id?'transparent':'var(--border2)'),background:filtro===id?'var(--purple-grad)':'var(--white)',color:filtro===id?'#fff':'var(--text2)'}}>
-        {lbl}{id!=='todos'&&<span style={{marginLeft:6,opacity:0.75,fontWeight:600}}>{cuenta(id)}</span>}
-      </button>)}
+    <div style={{marginBottom:18}}>
+      <FiltroAlumnos valor={filtro} onChange={setFiltro} lista={stylists} courses={courses} enrols={enrols}/>
     </div>
 
     {lista.length===0&&<div style={{padding:30,textAlign:'center',color:'var(--text3)',fontSize:14,background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)'}}>
