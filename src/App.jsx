@@ -795,6 +795,11 @@ const exportStudentsXLSX=(enrolled,configs,fees,yr)=>{
     rows+=R(S('Total cobrado (€)','lbl'),N(gPaid,'num'))
     rows+=R(S('Deuda total (€)','lbl'),N(gDue-gPaid,gDue-gPaid>0.01?'debt':'num'))
     rows+=R(S('% de cobro','lbl'),S(gDue>0?((gPaid/gDue)*100).toFixed(1)+'%':'—'))
+    const cobrado=m=>fees.filter(f=>f.year===yr&&f.payment_method===m).reduce((a,f)=>a+Number(f.amount_paid||0),0)
+    const sinMetodo=fees.filter(f=>f.year===yr&&Number(f.amount_paid)>0&&!f.payment_method).reduce((a,f)=>a+Number(f.amount_paid||0),0)
+    rows+=R(S('Cobrado en efectivo (€)','lbl'),N(cobrado('efectivo'),'num'))
+    rows+=R(S('Cobrado con tarjeta (€)','lbl'),N(cobrado('tarjeta'),'num'))
+    if(sinMetodo>0.01)rows+=R(S('Cobrado sin método registrado (€)','lbl'),N(sinMetodo,'num'))
     const alDia=enrolled.filter(st=>{const sf=fees.filter(f=>f.stylist_id===st.id&&f.year===yr);return sf.length>0&&sf.every(f=>Number(f.amount_paid)>=Number(f.amount_due))})
     rows+=R(S('Alumnos al día','lbl'),S(String(alDia.length)))
     rows+=R(S('Alumnos con deuda','lbl'),S(String(enrolled.filter(st=>fees.filter(f=>f.stylist_id===st.id&&f.year===yr).some(f=>Number(f.amount_paid)<Number(f.amount_due))).length)))
@@ -892,6 +897,7 @@ function FacturacionView({data,onAddExpense,onDelExpense}){
   const[dbErr,setDbErr]=useState('')
   const[configModal,setConfigModal]=useState(null)
   const[feeModal,setFeeModal]=useState(null)
+  const[pagoM,setPagoM]=useState(null)   // cuota a la que hay que elegirle método
   const[addStModal,setAddStModal]=useState(false)
   const[selStudent,setSelStudent]=useState(null)
   const[selYear,setSelYear]=useState(new Date().getFullYear())
@@ -918,8 +924,8 @@ function FacturacionView({data,onAddExpense,onDelExpense}){
     await supabase.from('student_fees').delete().eq('stylist_id',stylistId)
     loadSt()
   }
-  const markPaid=async(feeId,amtDue)=>{await supabase.from('student_fees').update({amount_paid:amtDue,paid_at:toK(new Date())}).eq('id',feeId);loadSt()}
-  const markUnpaid=async(feeId)=>{await supabase.from('student_fees').update({amount_paid:0,paid_at:null}).eq('id',feeId);loadSt()}
+  const markPaid=async(feeId,amtDue,metodo)=>{await supabase.from('student_fees').update({amount_paid:amtDue,paid_at:toK(new Date()),payment_method:metodo}).eq('id',feeId);setPagoM(null);loadSt()}
+  const markUnpaid=async(feeId)=>{await supabase.from('student_fees').update({amount_paid:0,paid_at:null,payment_method:null}).eq('id',feeId);loadSt()}
 
   // ── GASTOS logic ──
   const now=new Date()
@@ -1035,7 +1041,8 @@ function FacturacionView({data,onAddExpense,onDelExpense}){
                         <div style={{fontSize:11,fontWeight:700,color:paid?'var(--green)':enrolled?'var(--red)':'var(--text3)',marginBottom:3}}>{m}</div>
                         {enrolled?<div style={{fontSize:11,fontWeight:600,color:'var(--text2)',marginBottom:7}}>{Number(fee.amount_due).toFixed(0)}€</div>:<div style={{fontSize:11,color:'var(--text3)',marginBottom:7}}>—</div>}
                         <div style={{display:'flex',flexDirection:'column',gap:3}}>
-                          {enrolled&&!paid&&<button onClick={()=>markPaid(fee.id,fee.amount_due)} style={{fontSize:9,fontWeight:700,background:'var(--green)',color:'#fff',border:'none',borderRadius:5,padding:'3px 0',cursor:'pointer',fontFamily:'inherit'}}>Pagar</button>}
+                          {enrolled&&!paid&&<button onClick={()=>setPagoM(fee)} style={{fontSize:9,fontWeight:700,background:'var(--green)',color:'#fff',border:'none',borderRadius:5,padding:'3px 0',cursor:'pointer',fontFamily:'inherit'}}>Pagar</button>}
+                          {enrolled&&paid&&fee.payment_method&&<div title={fee.payment_method==='efectivo'?'Cobrado en efectivo':'Cobrado con tarjeta'} style={{fontSize:9,fontWeight:700,color:'var(--green)',textAlign:'center',marginBottom:1}}>{fee.payment_method==='efectivo'?'💶 Efec.':'💳 Tarj.'}</div>}
                           {enrolled&&paid&&<button onClick={()=>markUnpaid(fee.id)} style={{fontSize:9,fontWeight:600,background:'var(--white)',color:'var(--text3)',border:'1px solid var(--border)',borderRadius:5,padding:'3px 0',cursor:'pointer',fontFamily:'inherit'}}>Desmarcar</button>}
                           <button onClick={()=>setFeeModal({stylistId:st.id,year:selYear,month:mn,existing:fee,cfg})} style={{fontSize:9,fontWeight:600,background:'var(--white)',color:'var(--text2)',border:'1px solid var(--border)',borderRadius:5,padding:'3px 0',cursor:'pointer',fontFamily:'inherit'}}>{enrolled?'Editar':'+Inscribir'}</button>
                         </div>
@@ -1117,16 +1124,30 @@ function FacturacionView({data,onAddExpense,onDelExpense}){
     </Modal>}
 
     {/* Añadir / editar mes */}
+    {pagoM&&<Modal onClose={()=>setPagoM(null)}>
+      <h3 style={{fontSize:18,fontWeight:900,marginBottom:4}}>¿Cómo ha pagado?</h3>
+      <p style={{fontSize:13,color:'var(--text3)',marginBottom:18}}>{Number(pagoM.amount_due).toFixed(2)} € · {MS[pagoM.month-1]} {pagoM.year}</p>
+      <div style={{display:'flex',gap:10,marginBottom:12}}>
+        <button onClick={()=>markPaid(pagoM.id,pagoM.amount_due,'efectivo')} style={{flex:1,padding:'18px 8px',borderRadius:12,border:'1.5px solid var(--border2)',background:'var(--white)',cursor:'pointer',fontFamily:'inherit'}}>
+          <div style={{fontSize:24}}>💶</div><div style={{fontSize:14,fontWeight:800,color:'var(--text)',marginTop:4}}>Efectivo</div>
+        </button>
+        <button onClick={()=>markPaid(pagoM.id,pagoM.amount_due,'tarjeta')} style={{flex:1,padding:'18px 8px',borderRadius:12,border:'1.5px solid var(--border2)',background:'var(--white)',cursor:'pointer',fontFamily:'inherit'}}>
+          <div style={{fontSize:24}}>💳</div><div style={{fontSize:14,fontWeight:800,color:'var(--text)',marginTop:4}}>Tarjeta</div>
+        </button>
+      </div>
+      <Btn variant="secondary" full onClick={()=>setPagoM(null)}>Cancelar</Btn>
+    </Modal>}
+
     {feeModal&&<Modal onClose={()=>setFeeModal(null)}>
       <h3 style={{fontSize:18,fontWeight:900,marginBottom:4}}>{feeModal.existing?'Editar':'Inscribir'} mes</h3>
       <p style={{fontSize:13,color:'var(--text3)',marginBottom:18}}>{MS[feeModal.month-1]} {feeModal.year} · {stylists.find(s=>s.id===feeModal.stylistId)?.name}</p>
       <FeeForm
         defaultAmt={feeModal.cfg?.fee_amount||0}
         existing={feeModal.existing}
-        onSave={async(amtDue,amtPaid,notes)=>{
+        onSave={async(amtDue,amtPaid,notes,metodo)=>{
           const paidAt=amtPaid>=amtDue?toK(new Date()):null
-          if(feeModal.existing)await supabase.from('student_fees').update({amount_due:amtDue,amount_paid:amtPaid,notes,paid_at:paidAt}).eq('id',feeModal.existing.id)
-          else await supabase.from('student_fees').insert({stylist_id:feeModal.stylistId,year:feeModal.year,month:feeModal.month,amount_due:amtDue,amount_paid:amtPaid,notes,paid_at:paidAt})
+          if(feeModal.existing)await supabase.from('student_fees').update({amount_due:amtDue,amount_paid:amtPaid,notes,paid_at:paidAt,payment_method:amtPaid>0?metodo:null}).eq('id',feeModal.existing.id)
+          else await supabase.from('student_fees').insert({stylist_id:feeModal.stylistId,year:feeModal.year,month:feeModal.month,amount_due:amtDue,amount_paid:amtPaid,notes,paid_at:paidAt,payment_method:amtPaid>0?metodo:null})
           loadSt();setFeeModal(null)
         }}
         onDelete={feeModal.existing?async()=>{await supabase.from('student_fees').delete().eq('id',feeModal.existing.id);loadSt();setFeeModal(null)}:null}
@@ -1157,13 +1178,20 @@ function FeeForm({defaultAmt,existing,onSave,onDelete,onClose}){
   const[amtDue,setAmtDue]=useState(String(existing?.amount_due??defaultAmt))
   const[amtPaid,setAmtPaid]=useState(String(existing?.amount_paid??0))
   const[notes,setNotes]=useState(existing?.notes||'')
+  const[metodo,setMetodo]=useState(existing?.payment_method||'')
   return<>
     <Inp label="Importe a pagar (€)" type="number" step="0.01" value={amtDue} onChange={e=>setAmtDue(e.target.value)} placeholder="0.00"/>
     <Inp label="Importe pagado (€)" type="number" step="0.01" value={amtPaid} onChange={e=>setAmtPaid(e.target.value)} placeholder="0.00"/>
+    <div style={{marginBottom:14}}>
+      <div style={{fontSize:13,fontWeight:600,marginBottom:6}}>Método de pago</div>
+      <div style={{display:'flex',gap:6}}>
+        {[['efectivo','💶 Efectivo'],['tarjeta','💳 Tarjeta'],['','Sin indicar']].map(([v,lbl])=><button key={v||'na'} onClick={()=>setMetodo(v)} style={{flex:1,padding:'9px 6px',fontSize:13,fontWeight:700,fontFamily:'inherit',borderRadius:9,cursor:'pointer',border:'1.5px solid '+(metodo===v?'transparent':'var(--border2)'),background:metodo===v?'var(--purple-grad)':'var(--white)',color:metodo===v?'#fff':'var(--text2)'}}>{lbl}</button>)}
+      </div>
+    </div>
     {parseFloat(amtPaid)>0&&parseFloat(amtPaid)>=parseFloat(amtDue)&&<div style={{padding:'8px 12px',background:'var(--green-bg)',borderRadius:9,marginBottom:13,fontSize:13,color:'var(--green)',fontWeight:600}}>✓ Mes marcado como pagado</div>}
     <Inp label="Notas (opcional)" value={notes} onChange={e=>setNotes(e.target.value)} placeholder="Ej: pago en efectivo..."/>
     {onDelete&&<div style={{marginBottom:13}}><Btn full variant="danger" small onClick={onDelete}>Quitar inscripción de este mes</Btn></div>}
-    <div style={{display:'flex',gap:8}}><Btn variant="secondary" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={()=>onSave(parseFloat(amtDue)||0,parseFloat(amtPaid)||0,notes)} disabled={!amtDue} style={{flex:1}}>Guardar</Btn></div>
+    <div style={{display:'flex',gap:8}}><Btn variant="secondary" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={()=>onSave(parseFloat(amtDue)||0,parseFloat(amtPaid)||0,notes,metodo||null)} disabled={!amtDue} style={{flex:1}}>Guardar</Btn></div>
   </>
 }
 
