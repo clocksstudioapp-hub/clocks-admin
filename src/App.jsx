@@ -1578,6 +1578,10 @@ function ShiftEditModal({sty,date,current,sal,isOverride,onSaveRecurring,onSaveO
 // Ediciones de curso: el alumno puede estar en varias si renueva, y "exalumno"
 // se deduce de no tener ninguna en curso. El tipo de curso va en el alumno.
 const DOW_INI=['D','L','M','X','J','V','S']
+// "Septiembre 2026" -> "Sep 2026". Solo toca las palabras que son un mes;
+// cualquier otro nombre de edición se deja tal cual.
+const MESES_ABR={enero:'Ene',febrero:'Feb',marzo:'Mar',abril:'Abr',mayo:'May',junio:'Jun',julio:'Jul',agosto:'Ago',septiembre:'Sep',setiembre:'Sep',octubre:'Oct',noviembre:'Nov',diciembre:'Dic'}
+const abrevEdicion=n=>String(n||'').split(' ').map(w=>MESES_ABR[w.toLowerCase()]||w).join(' ')
 
 function TeamView({data,onSave,onDel,onLink,onUnlink,onReload}){
   const[edit,setEdit]=useState(null),[del,setDel]=useState(null)
@@ -1660,9 +1664,12 @@ function TeamView({data,onSave,onDel,onLink,onUnlink,onReload}){
               <div style={{fontSize:15,fontWeight:800,color:'var(--text)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.name}</div>
               <div style={{fontSize:11,fontWeight:700,letterSpacing:'0.02em',color:pl?pl.color:'var(--text3)',marginTop:2}}>{pl?pl.label:'Sin plan asignado'}</div>
             </div>
-            <div style={{display:'flex',flexDirection:'column',alignItems:'flex-end',gap:4,flexShrink:0}}>
-              {s.shift&&s.shift!=='ambos'&&<span title={s.shift==='TM'?'Turno de mañana':'Turno de tarde'} style={{fontSize:10,fontWeight:800,color:'#fff',background:'var(--purple-grad)',padding:'3px 8px',borderRadius:7}}>{s.shift}</span>}
-              {!s.active&&<span style={{fontSize:10,fontWeight:700,color:'var(--text3)',background:'var(--bg)',padding:'3px 8px',borderRadius:7}}>Inactivo</span>}
+            <div style={{display:'flex',alignItems:'center',gap:6,flexShrink:0}}>
+              {cs.slice(0,1).map(c=><span key={c.id} title={cs.map(x=>x.name).join(' · ')} style={{fontSize:11,fontWeight:700,padding:'4px 10px',borderRadius:20,whiteSpace:'nowrap',color:c.is_current?'var(--green)':'var(--text3)',background:c.is_current?'var(--green-bg)':'var(--bg)',border:'1px solid '+(c.is_current?'rgba(22,163,74,0.25)':'var(--border)')}}>{abrevEdicion(c.name)}</span>)}
+              {cs.length>1&&<span title={cs.map(x=>x.name).join(' · ')} style={{fontSize:11,fontWeight:700,padding:'4px 7px',borderRadius:20,color:'var(--text3)',background:'var(--bg)',border:'1px solid var(--border)'}}>+{cs.length-1}</span>}
+              {cs.length===0&&<span title="Sin edición asignada" style={{fontSize:11,fontWeight:700,padding:'4px 9px',borderRadius:20,color:'var(--text3)',background:'var(--bg)',border:'1px dashed var(--border2)'}}>—</span>}
+              {s.shift&&s.shift!=='ambos'&&<span title={s.shift==='TM'?'Turno de mañana':'Turno de tarde'} style={{fontSize:11,fontWeight:800,color:'#fff',background:'var(--purple-grad)',padding:'5px 9px',borderRadius:9}}>{s.shift}</span>}
+              {!s.active&&<span style={{fontSize:10,fontWeight:700,color:'var(--text3)',background:'var(--bg)',padding:'4px 8px',borderRadius:9}}>Inactivo</span>}
             </div>
           </div>
 
@@ -1676,12 +1683,8 @@ function TeamView({data,onSave,onDel,onLink,onUnlink,onReload}){
             <span style={{fontSize:12,fontWeight:700,color:horas?'var(--text2)':'var(--text3)',whiteSpace:'nowrap'}}>{horas||'—'}</span>
           </div>
 
-          <div style={{padding:'12px 16px 14px',display:'flex',flexDirection:'column',gap:12,flex:1}}>
-            <div style={{display:'flex',flexWrap:'wrap',gap:5,minHeight:20}}>
-              {cs.length===0&&<span style={{fontSize:11,color:'var(--text3)',fontStyle:'italic'}}>Sin edición asignada</span>}
-              {cs.map(c=><span key={c.id} title={c.is_current?'Edición en curso':'Edición cerrada'} style={{fontSize:11,fontWeight:700,padding:'3px 9px',borderRadius:20,color:c.is_current?'var(--green)':'var(--text3)',background:c.is_current?'var(--green-bg)':'var(--bg)',border:'1px solid '+(c.is_current?'rgba(22,163,74,0.2)':'var(--border)')}}>{c.name}</span>)}
-            </div>
-            <div style={{display:'flex',gap:6,marginTop:'auto'}}>
+          <div style={{padding:'12px 16px 14px',display:'flex',flex:1}}>
+            <div style={{display:'flex',gap:6,width:'100%',marginTop:'auto'}}>
               <Btn small variant="secondary" onClick={()=>setEdit(s)} style={{flex:1}}>Editar</Btn>
               <Btn small variant="danger" onClick={()=>setDel(s)}>✕</Btn>
             </div>
