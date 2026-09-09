@@ -1577,7 +1577,6 @@ function ShiftEditModal({sty,date,current,sal,isOverride,onSaveRecurring,onSaveO
 // ═══ TEAM CRUD ═══
 // Ediciones de curso: el alumno puede estar en varias si renueva, y "exalumno"
 // se deduce de no tener ninguna en curso. El tipo de curso va en el alumno.
-const TIPOS_CURSO=['Iniciación','Perfeccionamiento']
 const DOW_INI=['D','L','M','X','J','V','S']
 
 function TeamView({data,onSave,onDel,onLink,onUnlink,onReload}){
@@ -1585,7 +1584,10 @@ function TeamView({data,onSave,onDel,onLink,onUnlink,onReload}){
   const[filtro,setFiltro]=useState('actual')
   const[verCursos,setVerCursos]=useState(false)
   const[nuevoCurso,setNuevoCurso]=useState('')
-  const{stylists,courses=[],enrols=[],salonSchedule=[],schedules=[]}=data
+  const{stylists,courses=[],enrols=[],salonSchedule=[],schedules=[],studentCfg=[]}=data
+  // El tipo de curso ya se asigna en Facturación (student_config.plan): se lee
+  // de ahí en vez de pedirlo otra vez en la ficha.
+  const planDe=s=>PLANS.find(p=>p.id===studentCfg.find(c=>c.stylist_id===s.id)?.plan)
 
   const cursosDe=id=>enrols.filter(e=>e.stylist_id===id).map(e=>courses.find(c=>c.id===e.course_id)).filter(Boolean)
   const estado=s=>{const cs=cursosDe(s.id);if(!cs.length)return 'sin';return cs.some(c=>c.is_current)?'actual':'ex'}
@@ -1668,7 +1670,8 @@ function TeamView({data,onSave,onDel,onLink,onUnlink,onReload}){
                 {s.shift&&s.shift!=='ambos'&&<span title={s.shift==='TM'?'Turno de mañana':'Turno de tarde'} style={{fontSize:10,fontWeight:800,color:'var(--purple)',background:'var(--purple-bg2)',padding:'2px 6px',borderRadius:6,flexShrink:0}}>{s.shift}</span>}
                 {!s.active&&<span style={{fontSize:10,fontWeight:700,color:'var(--text3)',background:'var(--bg)',padding:'2px 6px',borderRadius:6,flexShrink:0}}>inactivo</span>}
               </div>
-              <div style={{fontSize:12,color:'var(--text3)'}}>{s.course_type||'Sin tipo de curso'}</div>
+              {(()=>{const pl=planDe(s)
+                return<div style={{fontSize:11,fontWeight:700,marginTop:2,color:pl?pl.color:'var(--text3)'}}>{pl?pl.label:'Sin plan asignado'}</div>})()}
             </div>
           </div>
 
@@ -1715,15 +1718,11 @@ function TeamView({data,onSave,onDel,onLink,onUnlink,onReload}){
 function StyModal({d,courses=[],enrolled=[],onSave,onClose}){
   const[n,sN]=useState(d.name||''),[r,sR]=useState(d.role_title||'Barbero'),[p,sP]=useState(d.photo_url||''),[a,sA]=useState(d.active!==false)
   const[sh,sSh]=useState(d.shift||'ambos')
-  const[ct,sCt]=useState(d.course_type||'')
   const[cids,sCids]=useState(enrolled)
   const[saving,setSaving]=useState(false),[err,setErr]=useState('')
-  const submit=async()=>{setSaving(true);setErr('');const e=await onSave({...d,name:n,role_title:r,photo_url:p,active:a,shift:sh,course_type:ct||null,courseIds:cids});setSaving(false);if(e)setErr(e.message||JSON.stringify(e))}
+  const submit=async()=>{setSaving(true);setErr('');const e=await onSave({...d,name:n,role_title:r,photo_url:p,active:a,shift:sh,courseIds:cids});setSaving(false);if(e)setErr(e.message||JSON.stringify(e))}
   return<Modal onClose={onClose}><h3 style={{fontSize:18,fontWeight:900,marginBottom:16}}>{d.id?'Editar':'Nuevo'} profesional</h3><Inp label="Nombre" required value={n} onChange={e=>sN(e.target.value)}/><Inp label="Rol" value={r} onChange={e=>sR(e.target.value)}/><Inp label="URL foto" value={p} onChange={e=>sP(e.target.value)} placeholder="/images/team-nombre.jpg"/>{p&&<div style={{marginBottom:10,width:50,height:50,borderRadius:10,overflow:'hidden',background:'var(--bg)'}}><img src={p} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/></div>}<div style={{marginBottom:14}}>
-    <div style={{fontSize:13,fontWeight:600,marginBottom:6}}>Tipo de curso</div>
-    <div style={{display:'flex',gap:6}}>
-      {[...TIPOS_CURSO,''].map(v=><button key={v||'ninguno'} onClick={()=>sCt(v)} style={{flex:1,padding:'9px 6px',fontSize:13,fontWeight:700,fontFamily:'inherit',borderRadius:9,cursor:'pointer',border:'1.5px solid '+(ct===v?'transparent':'var(--border2)'),background:ct===v?'var(--purple-grad)':'var(--white)',color:ct===v?'#fff':'var(--text2)'}}>{v||'Sin tipo'}</button>)}
-    </div>
+    <div style={{fontSize:13,fontWeight:600,marginBottom:6}}>Ediciones</div>
   </div>
   {courses.length>0&&<div style={{marginBottom:14}}>
     <div style={{fontSize:13,fontWeight:600,marginBottom:6}}>Ediciones</div>
@@ -2227,11 +2226,12 @@ export default function App(){
   const[overrides,setOverrides]=useState([])
   const[cfTeams,setCfTeams]=useState([])
   const[courses,setCourses]=useState([])
+  const[studentCfg,setStudentCfg]=useState([])
   const[enrols,setEnrols]=useState([])
   const[cfService,setCfService]=useState(null)
 
   const loadAll=useCallback(async()=>{
-    const[{data:a},{data:st},{data:sv},{data:bl},{data:ex},{data:ss},{data:allP},{data:sf},{data:to},{data:cl},{data:sch},{data:ov},{data:tm},{data:cfsv},{data:cur},{data:enr}]=await Promise.all([
+    const[{data:a},{data:st},{data:sv},{data:bl},{data:ex},{data:ss},{data:allP},{data:sf},{data:to},{data:cl},{data:sch},{data:ov},{data:tm},{data:cfsv},{data:cur},{data:enr},{data:scfg}]=await Promise.all([
       supabase.from('appointments').select('*').order('appointment_date',{ascending:false}).limit(1000),
       supabase.from('stylists').select('*').order('display_order'),
       supabase.from('services').select('*').order('display_order'),
@@ -2248,10 +2248,11 @@ export default function App(){
       supabase.from('services').select('*').eq('player_only',true).maybeSingle(),
       supabase.from('courses').select('*').order('id',{ascending:false}),
       supabase.from('stylist_courses').select('*'),
+      supabase.from('student_config').select('*'),
     ])
     setAppts(a||[]);setStylists(st||[]);setServices(sv||[]);setBlocks(bl||[]);setExpenses(ex||[]);setSalonSchedule(ss||[]);setDashFees(sf||[])
     setTimeOff(to||[]);setClosures(cl||[]);setSchedules(sch||[]);setOverrides(ov||[])
-    setCfTeams(tm||[]);setCfService(cfsv||null);setCourses(cur||[]);setEnrols(enr||[])
+    setCfTeams(tm||[]);setCfService(cfsv||null);setCourses(cur||[]);setEnrols(enr||[]);setStudentCfg(scfg||[])
     const arr=allP||[]
     setAllProfiles(arr)
     const m={};arr.forEach(pr=>{m[pr.id]=pr});setProfiles(m)
@@ -2275,7 +2276,7 @@ export default function App(){
   const delSvc=async id=>{await supabase.from('services').delete().eq('id',id);loadAll()}
   const saveSty=async d=>{
     let err
-    if(d.id){const r=await supabase.from('stylists').update({name:d.name,username:d.username,role_title:d.role_title,photo_url:d.photo_url,active:d.active,shift:d.shift||'ambos',course_type:d.course_type??null}).eq('id',d.id);err=r.error}
+    if(d.id){const r=await supabase.from('stylists').update({name:d.name,username:d.username,role_title:d.role_title,photo_url:d.photo_url,active:d.active,shift:d.shift||'ambos'}).eq('id',d.id);err=r.error}
     else{const mx=stylists.reduce((m,s)=>Math.max(m,s.display_order||0),0);const {applyShift,...ins}=d;const r=await supabase.from('stylists').insert({...ins,display_order:mx+1,active:true});err=r.error}
     if(!err)loadAll()
     return err
@@ -2307,7 +2308,7 @@ export default function App(){
     loadAll()
   }
 
-  const D={appts,profiles,stylists,services,blocks,expenses,allProfiles,dashFees,timeOff,closures,schedules,overrides,salonSchedule,cfTeams,cfService,courses,enrols}
+  const D={appts,profiles,stylists,services,blocks,expenses,allProfiles,dashFees,timeOff,closures,schedules,overrides,salonSchedule,cfTeams,cfService,courses,enrols,studentCfg}
   const isMainAdmin=profile?.role==='admin'
   const myStyId=profile?.stylist_id||null
   const myStyName=stylists.find(s=>s.id===myStyId)?.name||null
