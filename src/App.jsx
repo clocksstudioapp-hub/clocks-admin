@@ -1622,13 +1622,13 @@ function StyModal({d,onSave,onClose}){
   const[n,sN]=useState(d.name||''),[u,sU]=useState(d.username||''),[r,sR]=useState(d.role_title||'Barbero'),[p,sP]=useState(d.photo_url||''),[a,sA]=useState(d.active!==false)
   const[sh,sSh]=useState(d.shift||'ambos')
   const[saving,setSaving]=useState(false),[err,setErr]=useState('')
-  const submit=async()=>{setSaving(true);setErr('');const e=await onSave({...d,name:n,username:u,role_title:r,photo_url:p,active:a,shift:sh,applyShift:sh!==(d.shift||'ambos')});setSaving(false);if(e)setErr(e.message||JSON.stringify(e))}
+  const submit=async()=>{setSaving(true);setErr('');const e=await onSave({...d,name:n,username:u,role_title:r,photo_url:p,active:a,shift:sh});setSaving(false);if(e)setErr(e.message||JSON.stringify(e))}
   return<Modal onClose={onClose}><h3 style={{fontSize:18,fontWeight:900,marginBottom:16}}>{d.id?'Editar':'Nuevo'} profesional</h3><Inp label="Nombre" required value={n} onChange={e=>sN(e.target.value)}/><Inp label="Username" value={u} onChange={e=>sU(e.target.value)} placeholder="@user"/><Inp label="Rol" value={r} onChange={e=>sR(e.target.value)}/><Inp label="URL foto" value={p} onChange={e=>sP(e.target.value)} placeholder="/images/team-nombre.jpg"/>{p&&<div style={{marginBottom:10,width:50,height:50,borderRadius:10,overflow:'hidden',background:'var(--bg)'}}><img src={p} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/></div>}<div style={{marginBottom:14}}>
     <div style={{fontSize:13,fontWeight:600,marginBottom:6}}>Turno</div>
     <div style={{display:'flex',gap:6}}>
       {[['TM','Mañana'],['TT','Tarde'],['ambos','Ambos']].map(([v,lbl])=><button key={v} onClick={()=>sSh(v)} style={{flex:1,padding:'9px 6px',fontSize:13,fontWeight:700,fontFamily:'inherit',borderRadius:9,cursor:'pointer',border:'1.5px solid '+(sh===v?'transparent':'var(--border2)'),background:sh===v?'var(--purple-grad)':'var(--white)',color:sh===v?'#fff':'var(--text2)'}}>{lbl}</button>)}
     </div>
-    <div style={{fontSize:11,color:'var(--text3)',marginTop:6}}>Al cambiarlo se rellena toda su semana con ese turno. Después puedes afinar días sueltos en la pestaña Turnos. "Ambos" no toca los horarios.</div>
+    <div style={{fontSize:11,color:'var(--text3)',marginTop:6}}>Manda en toda su semana, tanto en la agenda como en lo que puede reservar un cliente. Para un día suelto, ponle una excepción en la pestaña Turnos.</div>
   </div>
   <div style={{display:'flex',alignItems:'center',gap:8,marginBottom:14}}><span style={{fontSize:13}}>Activo</span><button onClick={()=>sA(!a)} style={{width:40,height:22,borderRadius:11,border:'none',cursor:'pointer',background:a?'var(--purple)':'var(--border)',position:'relative',transition:'all .3s'}}><div style={{width:18,height:18,borderRadius:9,background:'#fff',position:'absolute',top:2,left:a?20:2,transition:'all .3s',boxShadow:'0 1px 2px rgba(0,0,0,0.15)'}}/></button></div>{err&&<div style={{padding:'10px 12px',background:'var(--red-bg)',border:'1px solid rgba(220,38,38,0.2)',borderRadius:9,marginBottom:12,fontSize:13,color:'var(--red)',fontWeight:600}}>⚠️ {err}</div>}<div style={{display:'flex',gap:8}}><Btn variant="secondary" onClick={onClose} style={{flex:1}}>Cancelar</Btn><Btn onClick={submit} disabled={saving||!n.trim()} style={{flex:1}}>{saving?'Guardando...':'Guardar'}</Btn></div></Modal>
 }
@@ -2161,14 +2161,6 @@ export default function App(){
     let err
     if(d.id){const r=await supabase.from('stylists').update({name:d.name,username:d.username,role_title:d.role_title,photo_url:d.photo_url,active:d.active,shift:d.shift||'ambos'}).eq('id',d.id);err=r.error}
     else{const mx=stylists.reduce((m,s)=>Math.max(m,s.display_order||0),0);const {applyShift,...ins}=d;const r=await supabase.from('stylists').insert({...ins,display_order:mx+1,active:true});err=r.error}
-    // El turno general de la ficha rellena la semana entera con las horas de esa
-    // franja. Solo cuando cambia, para no repisar los días afinados a mano.
-    if(!err&&d.id&&d.applyShift&&d.shift&&d.shift!=='ambos'){
-      for(const sal of salonSchedule.filter(x=>x.active&&x.break_start&&x.break_end)){
-        const h=horasTurno(sal,d.shift)
-        if(h)await supabase.from('stylist_schedules').upsert({stylist_id:d.id,day_of_week:sal.day_of_week,active:true,start_time:h.start_time,end_time:h.end_time,break_start:null,break_end:null},{onConflict:'stylist_id,day_of_week'})
-      }
-    }
     if(!err)loadAll()
     return err
   }
