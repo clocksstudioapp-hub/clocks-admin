@@ -1278,7 +1278,7 @@ function ClientsView({data}){
 }
 
 // ═══ PERSONAL (Equipo · Turnos · Ausencias) ═══
-function PersonalView({data,onSaveSty,onDelSty,onLink,onUnlink,onAddTimeOff,onDelTimeOff,onApproveTimeOff,onSaveRecurring,onSaveOverride}){
+function PersonalView({data,onSaveSty,onDelSty,onLink,onUnlink,onAddTimeOff,onDelTimeOff,onApproveTimeOff,onSaveRecurring,onSaveOverride,onReload}){
   const[tab,setTab]=useState('equipo')
   const tabs=[['equipo','Equipo','👤'],['turnos','Turnos','📋'],['ausencias','Ausencias','🌴']]
   const pending=data.timeOff.filter(t=>!t.approved&&t.end_date>=toK(new Date())).length
@@ -1287,7 +1287,7 @@ function PersonalView({data,onSaveSty,onDelSty,onLink,onUnlink,onAddTimeOff,onDe
     <div style={{display:'flex',gap:8,marginBottom:20,flexWrap:'wrap'}}>
       {tabs.map(([id,l,ic])=><button key={id} onClick={()=>setTab(id)} style={{padding:'8px 16px',fontSize:13,fontWeight:700,fontFamily:'inherit',border:`1.5px solid ${tab===id?'var(--purple)':'var(--border2)'}`,background:tab===id?'var(--purple)':'var(--white)',color:tab===id?'#fff':'var(--text2)',borderRadius:20,cursor:'pointer'}}>{ic} {l}{id==='ausencias'&&pending>0?` (${pending})`:''}</button>)}
     </div>
-    {tab==='equipo'&&<TeamView data={data} onSave={onSaveSty} onDel={onDelSty} onLink={onLink} onUnlink={onUnlink}/>}
+    {tab==='equipo'&&<TeamView data={data} onSave={onSaveSty} onDel={onDelSty} onLink={onLink} onUnlink={onUnlink} onReload={onReload}/>}
     {tab==='turnos'&&<TurnosView data={data} onSaveRecurring={onSaveRecurring} onSaveOverride={onSaveOverride}/>}
     {tab==='ausencias'&&<AbsencesView data={data} onAdd={onAddTimeOff} onDel={onDelTimeOff} onApprove={onApproveTimeOff}/>}
   </div>
@@ -1547,83 +1547,167 @@ function ShiftEditModal({sty,date,current,sal,isOverride,onSaveRecurring,onSaveO
 }
 
 // ═══ TEAM CRUD ═══
-function TeamView({data,onSave,onDel,onLink,onUnlink}){
-  const[edit,setEdit]=useState(null),[del,setDel]=useState(null),[linkFor,setLinkFor]=useState(null),[search,setSearch]=useState('')
-  const{allProfiles=[],stylists}=data
+// Ediciones de curso: el alumno puede estar en varias si renueva, y "exalumno"
+// se deduce de no tener ninguna en curso. El tipo de curso va en el alumno.
+const TIPOS_CURSO=['Iniciación','Perfeccionamiento']
+const DOW_INI=['D','L','M','X','J','V','S']
 
-  // Para cada barbero, encontrar su perfil vinculado
-  const linkedProfile=s=>allProfiles.find(p=>p.stylist_id===s.id&&p.role==='barber')
+function TeamView({data,onSave,onDel,onLink,onUnlink,onReload}){
+  const[edit,setEdit]=useState(null),[del,setDel]=useState(null)
+  const[filtro,setFiltro]=useState('actual')
+  const[verCursos,setVerCursos]=useState(false)
+  const[nuevoCurso,setNuevoCurso]=useState('')
+  const{stylists,courses=[],enrols=[],salonSchedule=[],schedules=[]}=data
 
-  // Profiles disponibles para vincular: no son barbers ya vinculados a otro barbero, no son admin
-  const availableProfiles=allProfiles.filter(p=>p.role!=='admin'&&(p.role!=='barber'||p.stylist_id===linkFor?.id))
-  const filtered=search?availableProfiles.filter(p=>p.full_name?.toLowerCase().includes(search.toLowerCase())||p.phone?.includes(search)):availableProfiles
+  const cursosDe=id=>enrols.filter(e=>e.stylist_id===id).map(e=>courses.find(c=>c.id===e.course_id)).filter(Boolean)
+  const estado=s=>{const cs=cursosDe(s.id);if(!cs.length)return 'sin';return cs.some(c=>c.is_current)?'actual':'ex'}
+  const cuenta=f=>stylists.filter(s=>estado(s)===f).length
+  const lista=stylists.filter(s=>filtro==='todos'||estado(s)===filtro)
+
+  // Horario compacto: los días que abre el salón en los que esta persona no
+  // tiene marcado día libre, y las horas de su turno.
+  const horarioCompacto=s=>{
+    const abiertos=salonSchedule.filter(d=>d.active)
+    if(!abiertos.length)return null
+    const dias=abiertos.filter(d=>{
+      const sc=schedules.find(x=>x.stylist_id===s.id&&x.day_of_week===d.day_of_week)
+      return sc?sc.active!==false:true
+    })
+    if(!dias.length)return 'Sin días asignados'
+    const sal=dias[0], hm=t=>(t||'').slice(0,5)
+    const horas=s.shift==='TM'&&sal.break_start?hm(sal.open_time)+'–'+hm(sal.break_start)
+      :s.shift==='TT'&&sal.break_end?hm(sal.break_end)+'–'+hm(sal.close_time)
+      :hm(sal.open_time)+'–'+hm(sal.close_time)
+    return dias.map(d=>DOW_INI[d.day_of_week]).join(' ')+' · '+horas
+  }
+
+  const guardarCurso=async(c,campos)=>{
+    if(c.id)await supabase.from('courses').update(campos).eq('id',c.id)
+    else await supabase.from('courses').insert(campos)
+    onReload&&onReload()
+  }
+  const borrarCurso=async id=>{await supabase.from('courses').delete().eq('id',id);onReload&&onReload()}
+
+  // Al guardar la ficha se reconcilian las matrículas: alta de las marcadas que
+  // faltaban y baja de las desmarcadas.
+  const guardarFicha=async x=>{
+    const{courseIds,...sty}=x
+    const e=await onSave(sty)
+    if(e)return e
+    if(sty.id&&Array.isArray(courseIds)){
+      const antes=enrols.filter(en=>en.stylist_id===sty.id).map(en=>en.course_id)
+      const alta=courseIds.filter(id=>!antes.includes(id))
+      const baja=antes.filter(id=>!courseIds.includes(id))
+      if(alta.length)await supabase.from('stylist_courses').insert(alta.map(id=>({stylist_id:sty.id,course_id:id})))
+      if(baja.length)await supabase.from('stylist_courses').delete().eq('stylist_id',sty.id).in('course_id',baja)
+      onReload&&onReload()
+    }
+    return null
+  }
+
+  const TABS=[['actual','En curso'],['ex','Exalumnos'],['sin','Sin asignar'],['todos','Todos']]
 
   return<div>
-    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}><h1 style={{fontSize:24,fontWeight:900}}>Equipo</h1><Btn onClick={()=>setEdit({name:'',username:'',role_title:'Barbero',photo_url:'',active:true})}>+ Añadir</Btn></div>
-    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(280px,1fr))',gap:14}}>
-      {stylists.map(s=>{
-        const linked=linkedProfile(s)
-        return<div key={s.id} className="fade" style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',padding:18,boxShadow:'var(--shadow)',opacity:s.active?1:0.5}}>
-          <div style={{display:'flex',alignItems:'center',gap:12,marginBottom:14}}>
-            <div style={{width:48,height:48,borderRadius:12,background:'var(--purple-bg)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:18,fontWeight:700,color:'var(--purple)',overflow:'hidden',flexShrink:0}}>{s.photo_url?<img src={s.photo_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}}/>:s.name[0]}</div>
-            <div><div style={{fontSize:15,fontWeight:700,display:'flex',alignItems:'center',gap:7}}>{s.name}
-              {s.shift&&s.shift!=='ambos'&&<span title={s.shift==='TM'?'Solo turno de mañana':'Solo turno de tarde'} style={{fontSize:10,fontWeight:800,color:'var(--purple)',background:'var(--purple-bg2)',padding:'2px 7px',borderRadius:7}}>{s.shift}</span>}
-            </div><div style={{fontSize:12,color:'var(--text3)'}}>{s.role_title} · {s.username||'—'}</div></div>
-          </div>
+    <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:16,flexWrap:'wrap',gap:10}}>
+      <h1 style={{fontSize:24,fontWeight:900}}>Equipo</h1>
+      <div style={{display:'flex',gap:8}}>
+        <Btn small variant="secondary" onClick={()=>setVerCursos(true)}>🎓 Ediciones</Btn>
+        <Btn onClick={()=>setEdit({name:'',role_title:'Barbero',photo_url:'',active:true,shift:'ambos'})}>+ Añadir</Btn>
+      </div>
+    </div>
 
-          {/* Cuenta vinculada */}
-          <div style={{marginBottom:12,padding:'10px 12px',borderRadius:10,background:linked?'var(--green-bg)':'var(--bg)',border:`1.5px solid ${linked?'rgba(22,163,74,0.2)':'var(--border)'}`,display:'flex',alignItems:'center',gap:10}}>
-            {linked?<>
-              <div style={{width:28,height:28,borderRadius:14,background:'var(--green)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:12,fontWeight:700,color:'#fff',flexShrink:0}}>{linked.full_name?.[0]?.toUpperCase()||'?'}</div>
-              <div style={{flex:1,minWidth:0}}>
-                <div style={{fontSize:13,fontWeight:700,color:'var(--green)'}}>{linked.full_name||'Sin nombre'}</div>
-                <div style={{fontSize:11,color:'var(--text3)',overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{linked.phone||'Sin teléfono'}</div>
+    <div style={{display:'flex',gap:6,marginBottom:18,flexWrap:'wrap'}}>
+      {TABS.map(([id,lbl])=><button key={id} onClick={()=>setFiltro(id)} style={{padding:'7px 14px',fontSize:13,fontWeight:700,fontFamily:'inherit',borderRadius:9,cursor:'pointer',border:'1.5px solid '+(filtro===id?'transparent':'var(--border2)'),background:filtro===id?'var(--purple-grad)':'var(--white)',color:filtro===id?'#fff':'var(--text2)'}}>
+        {lbl}{id!=='todos'&&<span style={{marginLeft:6,opacity:0.75,fontWeight:600}}>{cuenta(id)}</span>}
+      </button>)}
+    </div>
+
+    {lista.length===0&&<div style={{padding:30,textAlign:'center',color:'var(--text3)',fontSize:14,background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)'}}>
+      {filtro==='actual'?'Nadie matriculado en una edición en curso. Marca una edición como actual, o matricula alumnos desde su ficha.':'Nadie en este grupo.'}
+    </div>}
+
+    <div style={{display:'grid',gridTemplateColumns:'repeat(auto-fill,minmax(260px,1fr))',gap:14}}>
+      {lista.map(s=>{
+        const cs=cursosDe(s.id), hor=horarioCompacto(s)
+        return<div key={s.id} className="fade" style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',padding:16,boxShadow:'var(--shadow)',opacity:s.active?1:0.6}}>
+          <div style={{display:'flex',alignItems:'center',gap:11,marginBottom:12}}>
+            <div style={{width:44,height:44,borderRadius:11,background:'var(--purple-bg)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:17,fontWeight:700,color:'var(--purple)',overflow:'hidden',flexShrink:0}}>
+              {s.photo_url?<img src={s.photo_url} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/>:(s.name||'?')[0]}
+            </div>
+            <div style={{minWidth:0,flex:1}}>
+              <div style={{fontSize:15,fontWeight:700,display:'flex',alignItems:'center',gap:6}}>
+                <span style={{overflow:'hidden',textOverflow:'ellipsis',whiteSpace:'nowrap'}}>{s.name}</span>
+                {s.shift&&s.shift!=='ambos'&&<span title={s.shift==='TM'?'Turno de mañana':'Turno de tarde'} style={{fontSize:10,fontWeight:800,color:'var(--purple)',background:'var(--purple-bg2)',padding:'2px 6px',borderRadius:6,flexShrink:0}}>{s.shift}</span>}
+                {!s.active&&<span style={{fontSize:10,fontWeight:700,color:'var(--text3)',background:'var(--bg)',padding:'2px 6px',borderRadius:6,flexShrink:0}}>inactivo</span>}
               </div>
-              <button onClick={()=>onUnlink(linked.id)} style={{fontSize:11,fontWeight:700,color:'var(--red)',background:'var(--red-bg)',border:'1px solid rgba(220,38,38,0.18)',borderRadius:7,padding:'4px 9px',cursor:'pointer',fontFamily:'inherit',flexShrink:0}}>Desvincular</button>
-            </>:<>
-              <div style={{width:28,height:28,borderRadius:14,background:'var(--border)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:13,color:'var(--text3)',flexShrink:0}}>?</div>
-              <span style={{flex:1,fontSize:12,color:'var(--text3)'}}>Sin cuenta vinculada</span>
-              <button onClick={()=>{setLinkFor(s);setSearch('')}} style={{fontSize:11,fontWeight:700,color:'var(--purple)',background:'var(--purple-bg)',border:'1px solid rgba(105,107,198,0.15)',borderRadius:7,padding:'4px 9px',cursor:'pointer',fontFamily:'inherit',flexShrink:0}}>Vincular</button>
-            </>}
+              <div style={{fontSize:12,color:'var(--text3)'}}>{s.course_type||'Sin tipo de curso'}</div>
+            </div>
           </div>
 
-          <div style={{display:'flex',gap:6}}><Btn small variant="secondary" onClick={()=>setEdit(s)} style={{flex:1}}>Editar</Btn><Btn small variant="danger" onClick={()=>setDel(s)}>✕</Btn></div>
+          <div style={{fontSize:12,color:'var(--text2)',background:'var(--bg)',borderRadius:8,padding:'7px 10px',marginBottom:10}}>
+            🕐 {hor||'Sin horario del salón configurado'}
+          </div>
+
+          <div style={{display:'flex',flexWrap:'wrap',gap:5,marginBottom:12,minHeight:22}}>
+            {cs.length===0&&<span style={{fontSize:11,color:'var(--text3)'}}>Sin edición asignada</span>}
+            {cs.map(c=><span key={c.id} style={{fontSize:11,fontWeight:700,padding:'3px 8px',borderRadius:7,color:c.is_current?'var(--green)':'var(--text3)',background:c.is_current?'var(--green-bg)':'var(--bg)'}}>{c.name}</span>)}
+          </div>
+
+          <div style={{display:'flex',gap:6}}>
+            <Btn small variant="secondary" onClick={()=>setEdit(s)} style={{flex:1}}>Editar</Btn>
+            <Btn small variant="danger" onClick={()=>setDel(s)}>✕</Btn>
+          </div>
         </div>
       })}
     </div>
 
-    {/* Modal vincular cuenta */}
-    {linkFor&&<Modal onClose={()=>setLinkFor(null)}>
-      <h3 style={{fontSize:18,fontWeight:900,marginBottom:4}}>Vincular cuenta a {linkFor.name}</h3>
-      <p style={{fontSize:13,color:'var(--text3)',marginBottom:14}}>Selecciona el perfil de cliente que pertenece a este barbero. Su rol cambiará a Barbero automáticamente.</p>
-      <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="Buscar por nombre o teléfono..." autoFocus style={{width:'100%',padding:'9px 13px',fontSize:13,border:'1.5px solid var(--border2)',borderRadius:9,fontFamily:'inherit',marginBottom:12}}/>
-      <div style={{maxHeight:320,overflowY:'auto',display:'flex',flexDirection:'column',gap:6}}>
-        {filtered.length===0&&<div style={{padding:20,textAlign:'center',color:'var(--text3)',fontSize:13}}>Sin resultados</div>}
-        {filtered.map(p=>{
-          const isLinkedHere=p.stylist_id===linkFor.id
-          return<button key={p.id} onClick={()=>{onLink(linkFor.id,p.id);setLinkFor(null)}} style={{display:'flex',alignItems:'center',gap:10,padding:'10px 12px',borderRadius:10,border:`1.5px solid ${isLinkedHere?'var(--green)':'var(--border)'}`,background:isLinkedHere?'var(--green-bg)':'var(--white)',cursor:'pointer',textAlign:'left',fontFamily:'inherit',transition:'all .15s'}}>
-            <div style={{width:34,height:34,borderRadius:17,background:'var(--purple-bg)',display:'flex',alignItems:'center',justifyContent:'center',fontSize:14,fontWeight:700,color:'var(--purple)',flexShrink:0}}>{p.full_name?.[0]?.toUpperCase()||'?'}</div>
-            <div style={{flex:1,minWidth:0}}>
-              <div style={{fontSize:14,fontWeight:600,color:'var(--text)'}}>{p.full_name||'Sin nombre'}</div>
-              <div style={{fontSize:12,color:'var(--text3)'}}>{p.phone||'Sin teléfono'}{p.role==='barber'?<span style={{marginLeft:6,fontSize:11,color:'var(--orange)',fontWeight:600}}>• ya barbero</span>:null}</div>
-            </div>
-            {isLinkedHere&&<span style={{fontSize:11,fontWeight:700,color:'var(--green)'}}>✓ actual</span>}
-          </button>
-        })}
+    {verCursos&&<Modal onClose={()=>setVerCursos(false)}>
+      <h3 style={{fontSize:18,fontWeight:900,marginBottom:4}}>Ediciones</h3>
+      <p style={{fontSize:13,color:'var(--text3)',lineHeight:1.6,marginBottom:14}}>Marca cuáles están en curso. Quien no esté en ninguna de ellas pasa a Exalumnos. Puedes tener varias a la vez.</p>
+      <div style={{display:'flex',flexDirection:'column',gap:8,marginBottom:14,maxHeight:280,overflowY:'auto'}}>
+        {courses.length===0&&<div style={{fontSize:13,color:'var(--text3)',padding:'10px 0'}}>Todavía no hay ninguna edición.</div>}
+        {courses.map(c=><div key={c.id} style={{display:'flex',alignItems:'center',gap:8,padding:'9px 11px',border:'1.5px solid var(--border)',borderRadius:10}}>
+          <input defaultValue={c.name} onBlur={e=>{if(e.target.value.trim()&&e.target.value!==c.name)guardarCurso(c,{name:e.target.value.trim()})}} style={{flex:1,minWidth:0,fontSize:13,fontWeight:600,border:'none',background:'transparent',fontFamily:'inherit',color:'var(--text)'}}/>
+          <button onClick={()=>guardarCurso(c,{is_current:!c.is_current})} style={{fontSize:11,fontWeight:700,padding:'4px 9px',borderRadius:7,border:'none',cursor:'pointer',fontFamily:'inherit',color:c.is_current?'#fff':'var(--text3)',background:c.is_current?'var(--green)':'var(--bg)'}}>{c.is_current?'En curso':'Cerrada'}</button>
+          <button onClick={()=>borrarCurso(c.id)} title="Eliminar edición" style={{fontSize:12,color:'var(--red)',background:'var(--red-bg)',border:'none',borderRadius:7,padding:'4px 8px',cursor:'pointer',fontFamily:'inherit'}}>✕</button>
+        </div>)}
       </div>
-      <Btn variant="secondary" full onClick={()=>setLinkFor(null)} style={{marginTop:14}}>Cancelar</Btn>
+      <div style={{display:'flex',gap:8,marginBottom:14}}>
+        <input value={nuevoCurso} onChange={e=>setNuevoCurso(e.target.value)} placeholder="Septiembre 2026" style={{flex:1,padding:'9px 12px',fontSize:13,border:'1.5px solid var(--border2)',borderRadius:9,background:'var(--white)',fontFamily:'inherit'}}/>
+        <Btn small onClick={()=>{if(nuevoCurso.trim()){guardarCurso({},{name:nuevoCurso.trim(),is_current:true});setNuevoCurso('')}}} disabled={!nuevoCurso.trim()}>Crear</Btn>
+      </div>
+      <Btn variant="secondary" full onClick={()=>setVerCursos(false)}>Cerrar</Btn>
     </Modal>}
 
-    {edit&&<StyModal d={edit} onSave={async x=>{const e=await onSave(x);if(!e)setEdit(null);return e}} onClose={()=>setEdit(null)}/>}
-    {del&&<Modal onClose={()=>setDel(null)}><h3 style={{fontSize:18,fontWeight:900,marginBottom:12}}>¿Eliminar a {del.name}?</h3><div style={{display:'flex',gap:10,marginTop:16}}><Btn variant="secondary" onClick={()=>setDel(null)} style={{flex:1}}>Cancelar</Btn><Btn variant="danger" onClick={()=>{onDel(del.id);setDel(null)}} style={{flex:1}}>Eliminar</Btn></div></Modal>}
+    {edit&&<StyModal d={edit} courses={courses} enrolled={enrols.filter(e=>e.stylist_id===edit.id).map(e=>e.course_id)} onSave={async x=>{const e=await guardarFicha(x);if(!e)setEdit(null);return e}} onClose={()=>setEdit(null)}/>}
+    {del&&<Modal onClose={()=>setDel(null)}><h3 style={{fontSize:18,fontWeight:900,marginBottom:12}}>¿Eliminar a {del.name}?</h3><div style={{display:'flex',gap:8}}><Btn variant="secondary" onClick={()=>setDel(null)} style={{flex:1}}>Cancelar</Btn><Btn variant="danger" onClick={()=>{onDel(del.id);setDel(null)}} style={{flex:1}}>Eliminar</Btn></div></Modal>}
   </div>
 }
-function StyModal({d,onSave,onClose}){
-  const[n,sN]=useState(d.name||''),[u,sU]=useState(d.username||''),[r,sR]=useState(d.role_title||'Barbero'),[p,sP]=useState(d.photo_url||''),[a,sA]=useState(d.active!==false)
+
+function StyModal({d,courses=[],enrolled=[],onSave,onClose}){
+  const[n,sN]=useState(d.name||''),[r,sR]=useState(d.role_title||'Barbero'),[p,sP]=useState(d.photo_url||''),[a,sA]=useState(d.active!==false)
   const[sh,sSh]=useState(d.shift||'ambos')
+  const[ct,sCt]=useState(d.course_type||'')
+  const[cids,sCids]=useState(enrolled)
   const[saving,setSaving]=useState(false),[err,setErr]=useState('')
-  const submit=async()=>{setSaving(true);setErr('');const e=await onSave({...d,name:n,username:u,role_title:r,photo_url:p,active:a,shift:sh});setSaving(false);if(e)setErr(e.message||JSON.stringify(e))}
-  return<Modal onClose={onClose}><h3 style={{fontSize:18,fontWeight:900,marginBottom:16}}>{d.id?'Editar':'Nuevo'} profesional</h3><Inp label="Nombre" required value={n} onChange={e=>sN(e.target.value)}/><Inp label="Username" value={u} onChange={e=>sU(e.target.value)} placeholder="@user"/><Inp label="Rol" value={r} onChange={e=>sR(e.target.value)}/><Inp label="URL foto" value={p} onChange={e=>sP(e.target.value)} placeholder="/images/team-nombre.jpg"/>{p&&<div style={{marginBottom:10,width:50,height:50,borderRadius:10,overflow:'hidden',background:'var(--bg)'}}><img src={p} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/></div>}<div style={{marginBottom:14}}>
+  const submit=async()=>{setSaving(true);setErr('');const e=await onSave({...d,name:n,role_title:r,photo_url:p,active:a,shift:sh,course_type:ct||null,courseIds:cids});setSaving(false);if(e)setErr(e.message||JSON.stringify(e))}
+  return<Modal onClose={onClose}><h3 style={{fontSize:18,fontWeight:900,marginBottom:16}}>{d.id?'Editar':'Nuevo'} profesional</h3><Inp label="Nombre" required value={n} onChange={e=>sN(e.target.value)}/><Inp label="Rol" value={r} onChange={e=>sR(e.target.value)}/><Inp label="URL foto" value={p} onChange={e=>sP(e.target.value)} placeholder="/images/team-nombre.jpg"/>{p&&<div style={{marginBottom:10,width:50,height:50,borderRadius:10,overflow:'hidden',background:'var(--bg)'}}><img src={p} alt="" style={{width:'100%',height:'100%',objectFit:'cover'}} onError={e=>e.target.style.display='none'}/></div>}<div style={{marginBottom:14}}>
+    <div style={{fontSize:13,fontWeight:600,marginBottom:6}}>Tipo de curso</div>
+    <div style={{display:'flex',gap:6}}>
+      {[...TIPOS_CURSO,''].map(v=><button key={v||'ninguno'} onClick={()=>sCt(v)} style={{flex:1,padding:'9px 6px',fontSize:13,fontWeight:700,fontFamily:'inherit',borderRadius:9,cursor:'pointer',border:'1.5px solid '+(ct===v?'transparent':'var(--border2)'),background:ct===v?'var(--purple-grad)':'var(--white)',color:ct===v?'#fff':'var(--text2)'}}>{v||'Sin tipo'}</button>)}
+    </div>
+  </div>
+  {courses.length>0&&<div style={{marginBottom:14}}>
+    <div style={{fontSize:13,fontWeight:600,marginBottom:6}}>Ediciones</div>
+    <div style={{display:'flex',flexWrap:'wrap',gap:6}}>
+      {courses.map(c=>{const on=cids.includes(c.id)
+        return<button key={c.id} onClick={()=>sCids(on?cids.filter(x=>x!==c.id):[...cids,c.id])} style={{padding:'7px 11px',fontSize:12,fontWeight:700,fontFamily:'inherit',borderRadius:8,cursor:'pointer',border:'1.5px solid '+(on?'transparent':'var(--border2)'),background:on?'var(--purple-grad)':'var(--white)',color:on?'#fff':'var(--text2)'}}>
+          {on?'✓ ':''}{c.name}{c.is_current?'':' (cerrada)'}
+        </button>})}
+    </div>
+    <div style={{fontSize:11,color:'var(--text3)',marginTop:6}}>Marca todas en las que haya estado. Si no está en ninguna en curso, aparece como exalumno.</div>
+  </div>}
+  <div style={{marginBottom:14}}>
     <div style={{fontSize:13,fontWeight:600,marginBottom:6}}>Turno</div>
     <div style={{display:'flex',gap:6}}>
       {[['TM','Mañana'],['TT','Tarde'],['ambos','Ambos']].map(([v,lbl])=><button key={v} onClick={()=>sSh(v)} style={{flex:1,padding:'9px 6px',fontSize:13,fontWeight:700,fontFamily:'inherit',borderRadius:9,cursor:'pointer',border:'1.5px solid '+(sh===v?'transparent':'var(--border2)'),background:sh===v?'var(--purple-grad)':'var(--white)',color:sh===v?'#fff':'var(--text2)'}}>{lbl}</button>)}
@@ -2114,10 +2198,12 @@ export default function App(){
   const[schedules,setSchedules]=useState([])
   const[overrides,setOverrides]=useState([])
   const[cfTeams,setCfTeams]=useState([])
+  const[courses,setCourses]=useState([])
+  const[enrols,setEnrols]=useState([])
   const[cfService,setCfService]=useState(null)
 
   const loadAll=useCallback(async()=>{
-    const[{data:a},{data:st},{data:sv},{data:bl},{data:ex},{data:ss},{data:allP},{data:sf},{data:to},{data:cl},{data:sch},{data:ov},{data:tm},{data:cfsv}]=await Promise.all([
+    const[{data:a},{data:st},{data:sv},{data:bl},{data:ex},{data:ss},{data:allP},{data:sf},{data:to},{data:cl},{data:sch},{data:ov},{data:tm},{data:cfsv},{data:cur},{data:enr}]=await Promise.all([
       supabase.from('appointments').select('*').order('appointment_date',{ascending:false}).limit(1000),
       supabase.from('stylists').select('*').order('display_order'),
       supabase.from('services').select('*').order('display_order'),
@@ -2125,17 +2211,19 @@ export default function App(){
       supabase.from('expenses').select('*').order('expense_date',{ascending:false}).limit(500),
       supabase.from('salon_schedule').select('*').order('day_of_week'),
       supabase.from('profiles').select('id,full_name,phone,role,stylist_id,team_id').order('full_name'),
-      supabase.from('student_fees').select('stylist_id,year,month,amount_paid,amount_due'),
+      supabase.from('student_fees').select('stylist_id,year,month,amount_paid,amount_due,payment_method'),
       supabase.from('time_off').select('*,stylists(name)').order('start_date',{ascending:false}),
       supabase.from('salon_closures').select('*').order('start_date',{ascending:false}),
       supabase.from('stylist_schedules').select('*'),
       supabase.from('schedule_overrides').select('*'),
       supabase.from('cf_teams').select('*').order('display_order'),
       supabase.from('services').select('*').eq('player_only',true).maybeSingle(),
+      supabase.from('courses').select('*').order('id',{ascending:false}),
+      supabase.from('stylist_courses').select('*'),
     ])
     setAppts(a||[]);setStylists(st||[]);setServices(sv||[]);setBlocks(bl||[]);setExpenses(ex||[]);setSalonSchedule(ss||[]);setDashFees(sf||[])
     setTimeOff(to||[]);setClosures(cl||[]);setSchedules(sch||[]);setOverrides(ov||[])
-    setCfTeams(tm||[]);setCfService(cfsv||null)
+    setCfTeams(tm||[]);setCfService(cfsv||null);setCourses(cur||[]);setEnrols(enr||[])
     const arr=allP||[]
     setAllProfiles(arr)
     const m={};arr.forEach(pr=>{m[pr.id]=pr});setProfiles(m)
@@ -2159,7 +2247,7 @@ export default function App(){
   const delSvc=async id=>{await supabase.from('services').delete().eq('id',id);loadAll()}
   const saveSty=async d=>{
     let err
-    if(d.id){const r=await supabase.from('stylists').update({name:d.name,username:d.username,role_title:d.role_title,photo_url:d.photo_url,active:d.active,shift:d.shift||'ambos'}).eq('id',d.id);err=r.error}
+    if(d.id){const r=await supabase.from('stylists').update({name:d.name,username:d.username,role_title:d.role_title,photo_url:d.photo_url,active:d.active,shift:d.shift||'ambos',course_type:d.course_type??null}).eq('id',d.id);err=r.error}
     else{const mx=stylists.reduce((m,s)=>Math.max(m,s.display_order||0),0);const {applyShift,...ins}=d;const r=await supabase.from('stylists').insert({...ins,display_order:mx+1,active:true});err=r.error}
     if(!err)loadAll()
     return err
@@ -2191,7 +2279,7 @@ export default function App(){
     loadAll()
   }
 
-  const D={appts,profiles,stylists,services,blocks,expenses,allProfiles,dashFees,timeOff,closures,schedules,overrides,salonSchedule,cfTeams,cfService}
+  const D={appts,profiles,stylists,services,blocks,expenses,allProfiles,dashFees,timeOff,closures,schedules,overrides,salonSchedule,cfTeams,cfService,courses,enrols}
   const isMainAdmin=profile?.role==='admin'
   const myStyId=profile?.stylist_id||null
   const myStyName=stylists.find(s=>s.id===myStyId)?.name||null
@@ -2209,7 +2297,7 @@ export default function App(){
       {page==='finance'&&isMainAdmin&&<FacturacionView data={D} onAddExpense={addExpense} onDelExpense={delExpense}/>}
       {page==='barbers'&&isMainAdmin&&<BarberStats data={D}/>}
       {page==='clients'&&isMainAdmin&&<ClientsView data={D}/>}
-      {page==='personal'&&isMainAdmin&&<PersonalView data={D} onSaveSty={saveSty} onDelSty={delSty} onLink={linkProfile} onUnlink={unlinkProfile} onAddTimeOff={addTimeOff} onDelTimeOff={delTimeOff} onApproveTimeOff={approveTimeOff} onSaveRecurring={saveShiftRecurring} onSaveOverride={saveShiftOverride}/>}
+      {page==='personal'&&isMainAdmin&&<PersonalView data={D} onReload={loadAll} onSaveSty={saveSty} onDelSty={delSty} onLink={linkProfile} onUnlink={unlinkProfile} onAddTimeOff={addTimeOff} onDelTimeOff={delTimeOff} onApproveTimeOff={approveTimeOff} onSaveRecurring={saveShiftRecurring} onSaveOverride={saveShiftOverride}/>}
       {page==='cfjuventud'&&isMainAdmin&&<CFJuventudView data={D} onChanged={loadAll}/>}
       {page==='timeoff'&&!isMainAdmin&&<MyAbsencesView data={D} stylistId={myStyId} onAdd={addTimeOff} onDel={delTimeOff}/>}
       {page==='services'&&isMainAdmin&&<ServicesView data={D} onSave={saveSvc} onDel={delSvc}/>}
