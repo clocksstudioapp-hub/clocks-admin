@@ -465,8 +465,11 @@ function CalendarView({data,onCancel,onApptAdded,onAddBlock,salonSchedule=[],loc
   const[ocultos,setOcultos]=useState(leerOcultos)
   const[turnoManual,setTurnoManual]=useState(null)   // null = automático por hora
 
+  // El turno automático sale de la hora actual, así que solo vale para hoy:
+  // aplicado a otro día escondía a medio equipo (el martes por la tarde, al
+  // mirar el jueves, desaparecían todos los de mañana). Otro día = todo el equipo.
   const schedHoy=salonSchedule.find(x=>x.day_of_week===new Date().getDay())
-  const turnoAuto=turnoPorHora(schedHoy)
+  const turnoAuto=isT(anchor)?turnoPorHora(schedHoy):null
   const[completo,setCompleto]=useState(leerCompleto)
   const verCompleto=v=>{setCompleto(v);guardarCompleto(v)}
   const turno=completo?null:(turnoManual||turnoAuto)
@@ -1430,16 +1433,19 @@ function TurnosView({data,onSaveRecurring,onSaveOverride}){
   // Equipo, y arranca mostrando solo la promoción en curso.
   const activos=data.stylists.filter(s=>s.active)
   const actives=activos.filter(s=>filtro==='todos'||estadoAlumno(s,courses,enrols)===filtro)
-  // Horario efectivo: override(fecha) > recurrente(dow) > horario del salón(dow).
-  // El fallback al salón mantiene la celda y el total de horas coherentes cuando
-  // un profesional aún no tiene turno guardado.
-  const salonAsShift=d=>{
+  // Horario efectivo, el mismo orden que availability.js en la app cliente:
+  // override(fecha) > recurrente(dow) > turno TM/TT de la ficha > horario del salón.
+  // Sin el paso del turno, la rejilla pintaba a un alumno de tarde de 10 a 20
+  // aunque solo se le pudiera reservar por la tarde.
+  const salonAsShift=(d,shift)=>{
     const sal=(data.salonSchedule||[]).find(x=>x.day_of_week===d.getDay())
+    const h=(shift==='TM'||shift==='TT')?horasTurno(sal,shift):null
+    if(h)return{active:true,start_time:h.start_time,end_time:h.end_time,break_start:null,break_end:null}
     return sal?{active:sal.active,start_time:sal.open_time,end_time:sal.close_time,break_start:sal.break_start,break_end:sal.break_end}:null
   }
   const eff=(sty,d)=>{
     const dk=toK(d)
-    return overrides.find(o=>o.stylist_id===sty.id&&o.override_date===dk)||schedules.find(s=>s.stylist_id===sty.id&&s.day_of_week===d.getDay())||salonAsShift(d)
+    return overrides.find(o=>o.stylist_id===sty.id&&o.override_date===dk)||schedules.find(s=>s.stylist_id===sty.id&&s.day_of_week===d.getDay())||salonAsShift(d,sty.shift)
   }
   const cell=(sty,d)=>{
     const dk=toK(d)
