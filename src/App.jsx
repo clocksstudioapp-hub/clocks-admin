@@ -122,11 +122,17 @@ function MonthRangePicker({from,to,onChange}){
 }
 
 // ═══ SIDEBAR ═══
-function Sidebar({active,onNav,isMainAdmin,stylistName}){
+function Sidebar({active,onNav,isMainAdmin,isTeacher,stylistName}){
   const[imgOk,setImgOk]=useState(true)
   const adminItems=[{id:'dash',label:'Dashboard',icon:'📊'},{id:'cal',label:'Calendario',icon:'📅'},{id:'finance',label:'Facturación',icon:'🧾'},{id:'barbers',label:'Barberos',icon:'📈'},{id:'clients',label:'Clientes',icon:'👥'},{id:'personal',label:'Personal',icon:'👥'},{id:'cfjuventud',label:'CF Juventud',icon:'⚽'},{id:'services',label:'Servicios',icon:'✂️'},{id:'blocks',label:'Bloqueos',icon:'🚫'},{id:'schedule',label:'Horario salón',icon:'🕐'}]
+  // El profesor opera sin dinero: misma operativa que el admin (agenda,
+  // bloqueos, turnos, clientes, horario, CF Juventud) pero sin facturación,
+  // sin dashboard, sin barberos, sin servicios, ni la pestaña Equipo.
+  const teacherItems=[{id:'cal',label:'Calendario',icon:'📅'},{id:'personal',label:'Turnos y ausencias',icon:'👥'},{id:'clients',label:'Clientes',icon:'👥'},{id:'cfjuventud',label:'CF Juventud',icon:'⚽'},{id:'blocks',label:'Bloqueos',icon:'🚫'},{id:'schedule',label:'Horario salón',icon:'🕐'}]
   const barberItems=[{id:'cal',label:'Mi calendario',icon:'📅'},{id:'schedule',label:'Mi horario',icon:'🕐'},{id:'blocks',label:'Mis bloqueos',icon:'🚫'},{id:'timeoff',label:'Mis ausencias',icon:'🌴'}]
-  const items=isMainAdmin?adminItems:barberItems
+  const items=isMainAdmin?adminItems:isTeacher?teacherItems:barberItems
+  const subtitle=isMainAdmin?'Panel PRO':isTeacher?'Profesor':'Barbero'
+  const title=isMainAdmin?'Clocks Admin':stylistName||(isTeacher?'Profesor':'Mi Panel')
   return<div style={{width:'var(--sidebar-w)',background:'var(--white)',borderRight:'1.5px solid var(--border)',height:'100vh',position:'fixed',left:0,top:0,display:'flex',flexDirection:'column',zIndex:10,boxShadow:'2px 0 12px rgba(105,107,198,0.06)'}}>
     <div style={{padding:'18px 16px',borderBottom:'1.5px solid var(--border)'}}>
       <div style={{display:'flex',alignItems:'center',gap:10}}>
@@ -136,8 +142,8 @@ function Sidebar({active,onNav,isMainAdmin,stylistName}){
             :<span style={{fontSize:16,fontWeight:900,color:'#fff'}}>C</span>}
         </div>
         <div>
-          <div style={{fontSize:14,fontWeight:800,color:'var(--text)'}}>{isMainAdmin?'Clocks Admin':stylistName||'Mi Panel'}</div>
-          <div style={{fontSize:10,color:'var(--text3)',fontWeight:500}}>{isMainAdmin?'Panel PRO':'Barbero'}</div>
+          <div style={{fontSize:14,fontWeight:800,color:'var(--text)'}}>{title}</div>
+          <div style={{fontSize:10,color:'var(--text3)',fontWeight:500}}>{subtitle}</div>
         </div>
       </div>
     </div>
@@ -1264,17 +1270,35 @@ function BarberStats({data}){
 }
 
 // ═══ CLIENTS ═══
-function ClientsView({data}){
+function ClientsView({data,sinImportes=false,canManageRoles=false,onReload,onToggleRole}){
   const{appts,allProfiles,services,stylists}=data
   const[search,setSearch]=useState('')
   // Stats por usuario
   const statsMap={}
   appts.forEach(a=>{if(!a.user_id)return;if(!statsMap[a.user_id])statsMap[a.user_id]={v:0,r:0,c:0,last:null};if(a.status==='confirmed'||a.status==='completed'){statsMap[a.user_id].v++;const sv=services.find(x=>x.id===a.service_id);statsMap[a.user_id].r+=sv?Number(sv.price):0;if(!statsMap[a.user_id].last||a.appointment_date>statsMap[a.user_id].last)statsMap[a.user_id].last=a.appointment_date}if(a.status==='cancelled')statsMap[a.user_id].c++})
-  const ROLE_BADGE={admin:{l:'Admin',c:'var(--purple)',bg:'var(--purple-bg)'},barber:{l:'Barbero',c:'var(--orange)',bg:'var(--orange-bg)'}}
+  const ROLE_BADGE={admin:{l:'Admin',c:'var(--purple)',bg:'var(--purple-bg)'},barber:{l:'Barbero',c:'var(--orange)',bg:'var(--orange-bg)'},teacher:{l:'Profesor',c:'var(--blue)',bg:'var(--blue-bg)'}}
   let clients=(allProfiles||[]).map(p=>({...p,...(statsMap[p.id]||{v:0,r:0,c:0,last:null})}))
   if(search)clients=clients.filter(c=>c.full_name?.toLowerCase().includes(search.toLowerCase())||c.phone?.includes(search))
-  clients.sort((a,b)=>b.r-a.r||(a.full_name||'').localeCompare(b.full_name||''))
-  const handleExport=()=>{const rows=clients.map(c=>({Nombre:c.full_name||'—',Telefono:c.phone||'—',Rol:c.role||'user',Visitas:c.v,Ingresos:c.r.toFixed(2),Cancelaciones:c.c,Ultima_visita:c.last||'—'}));if(rows.length>0)exportCSV(rows,'clientes')}
+  // Sin importes: no se ordena por gasto (sería ya un dato de dinero).
+  clients.sort((a,b)=>sinImportes?((a.full_name||'').localeCompare(b.full_name||'')):(b.r-a.r||(a.full_name||'').localeCompare(b.full_name||'')))
+  const handleExport=()=>{const base={Nombre:c=>c.full_name||'—',Telefono:c=>c.phone||'—',Rol:c=>c.role||'user',Visitas:c=>c.v,Cancelaciones:c=>c.c,Ultima_visita:c=>c.last||'—'};const cols=sinImportes?base:{...base,Ingresos:c=>c.r.toFixed(2)};const rows=clients.map(c=>Object.fromEntries(Object.entries(cols).map(([k,fn])=>[k,fn(c)])));if(rows.length>0)exportCSV(rows,'clientes')}
+  const cols=sinImportes
+    ?'2fr 1fr 90px 80px 80px 100px 160px'
+    :'2fr 1fr 90px 80px 100px 80px 100px'
+  const headers=sinImportes
+    ?['Cliente','Teléfono','Rol','Visitas','Canc.','Última','']
+    :['Cliente','Teléfono','Rol','Visitas','Ingresos','Canc.','Última']
+  // Botón Hacer/Quitar profesor: solo admin (canManageRoles) y nunca sobre
+  // admin/barber/player. El profesor no lo ve.
+  const toggleTeacher=c=>{
+    if(!onToggleRole)return
+    const next=c.role==='teacher'?'client':'teacher'
+    const msg=next==='teacher'
+      ?`¿Convertir a ${c.full_name||'este usuario'} en profesor? Gestionará el panel sin acceso a dinero.`
+      :`¿Quitar el rol de profesor a ${c.full_name||'este usuario'}? Volverá a ser cliente.`
+    if(!confirm(msg))return
+    onToggleRole(c.id,next)
+  }
   return<div>
     <div style={{display:'flex',justifyContent:'space-between',alignItems:'center',marginBottom:20}}>
       <div><h1 style={{fontSize:24,fontWeight:900}}>Clientes</h1><p style={{fontSize:14,color:'var(--text3)'}}>{clients.length} registrados</p></div>
@@ -1284,14 +1308,17 @@ function ClientsView({data}){
       </div>
     </div>
     <div style={{background:'var(--white)',borderRadius:14,border:'1.5px solid var(--border)',boxShadow:'var(--shadow)',overflow:'hidden'}}>
-      <div style={{display:'grid',gridTemplateColumns:'2fr 1fr 90px 80px 100px 80px 100px',padding:'10px 20px',borderBottom:'1.5px solid var(--border)',background:'var(--bg)'}}>
-        {['Cliente','Teléfono','Rol','Visitas','Ingresos','Canc.','Última'].map(h=><div key={h} style={{fontSize:11,fontWeight:700,color:'var(--text3)',textTransform:'uppercase',letterSpacing:'0.05em'}}>{h}</div>)}
+      <div style={{display:'grid',gridTemplateColumns:cols,padding:'10px 20px',borderBottom:'1.5px solid var(--border)',background:'var(--bg)'}}>
+        {headers.map(h=><div key={h} style={{fontSize:11,fontWeight:700,color:'var(--text3)',textTransform:'uppercase',letterSpacing:'0.05em'}}>{h}</div>)}
       </div>
       {clients.length===0?<div style={{padding:30,textAlign:'center',color:'var(--text3)'}}>No hay perfiles registrados</div>:
       clients.map(c=>{
         const rb=ROLE_BADGE[c.role]
         const linkedSty=c.role==='barber'?stylists.find(s=>s.id===c.stylist_id):null
-        return<div key={c.id} style={{display:'grid',gridTemplateColumns:'2fr 1fr 90px 80px 100px 80px 100px',padding:'12px 20px',borderBottom:'1px solid var(--border)',alignItems:'center'}}>
+        // El botón de rol solo aparece sobre client/user/teacher (nunca sobre
+        // admin/barber/player) y solo para el admin.
+        const canToggle=canManageRoles&&(c.role==='client'||c.role==='user'||c.role==='teacher')
+        return<div key={c.id} style={{display:'grid',gridTemplateColumns:cols,padding:'12px 20px',borderBottom:'1px solid var(--border)',alignItems:'center'}}>
           <div>
             <div style={{fontSize:14,fontWeight:500}}>{c.full_name||'Sin nombre'}</div>
             {linkedSty&&<div style={{fontSize:11,color:'var(--orange)',fontWeight:600}}>✂️ {linkedSty.name}</div>}
@@ -1299,9 +1326,12 @@ function ClientsView({data}){
           <div style={{fontSize:13,color:'var(--text2)'}}>{c.phone||'—'}</div>
           <div>{rb?<span style={{fontSize:11,fontWeight:700,color:rb.c,background:rb.bg,padding:'2px 8px',borderRadius:6}}>{rb.l}</span>:<span style={{fontSize:11,color:'var(--text3)'}}>Cliente</span>}</div>
           <div style={{fontSize:14,fontWeight:600}}>{c.v}</div>
-          <div style={{fontSize:14,fontWeight:700,color:'var(--purple)'}}>{c.r.toFixed(0)}€</div>
+          {!sinImportes&&<div style={{fontSize:14,fontWeight:700,color:'var(--purple)'}}>{c.r.toFixed(0)}€</div>}
           <div style={{fontSize:13,color:c.c>0?'var(--red)':'var(--text3)'}}>{c.c}</div>
           <div style={{fontSize:12,color:'var(--text3)'}}>{c.last?fS(new Date(c.last+'T12:00')):'—'}</div>
+          {canToggle
+              ?<Btn small variant={c.role==='teacher'?'secondary':'primary'} onClick={()=>toggleTeacher(c)}>{c.role==='teacher'?'Quitar profesor':'Hacer profesor'}</Btn>
+              :<div/>}
         </div>
       })}
     </div>
@@ -1309,16 +1339,19 @@ function ClientsView({data}){
 }
 
 // ═══ PERSONAL (Equipo · Turnos · Ausencias) ═══
-function PersonalView({data,onSaveSty,onDelSty,onLink,onUnlink,onAddTimeOff,onDelTimeOff,onApproveTimeOff,onSaveRecurring,onSaveOverride,onReload}){
-  const[tab,setTab]=useState('equipo')
-  const tabs=[['equipo','Equipo','👤'],['turnos','Turnos','📋'],['ausencias','Ausencias','🌴']]
+function PersonalView({data,onSaveSty,onDelSty,onLink,onUnlink,onAddTimeOff,onDelTimeOff,onApproveTimeOff,onSaveRecurring,onSaveOverride,onReload,soloOperativa=false}){
+  // El profesor ve solo Turnos y Ausencias: la pestaña Equipo toca planes,
+  // cuotas y fichas con importes que no debe ver.
+  const[tab,setTab]=useState(soloOperativa?'turnos':'equipo')
+  const allTabs=[['equipo','Equipo','👤'],['turnos','Turnos','📋'],['ausencias','Ausencias','🌴']]
+  const tabs=soloOperativa?allTabs.slice(1):allTabs
   const pending=data.timeOff.filter(t=>!t.approved&&t.end_date>=toK(new Date())).length
   return<div>
     <h1 style={{fontSize:24,fontWeight:900,marginBottom:16}}>Personal</h1>
     <div style={{display:'flex',gap:8,marginBottom:20,flexWrap:'wrap'}}>
       {tabs.map(([id,l,ic])=><button key={id} onClick={()=>setTab(id)} style={{padding:'8px 16px',fontSize:13,fontWeight:700,fontFamily:'inherit',border:`1.5px solid ${tab===id?'var(--purple)':'var(--border2)'}`,background:tab===id?'var(--purple)':'var(--white)',color:tab===id?'#fff':'var(--text2)',borderRadius:20,cursor:'pointer'}}>{ic} {l}{id==='ausencias'&&pending>0?` (${pending})`:''}</button>)}
     </div>
-    {tab==='equipo'&&<TeamView data={data} onSave={onSaveSty} onDel={onDelSty} onLink={onLink} onUnlink={onUnlink} onReload={onReload}/>}
+    {tab==='equipo'&&!soloOperativa&&<TeamView data={data} onSave={onSaveSty} onDel={onDelSty} onLink={onLink} onUnlink={onUnlink} onReload={onReload}/>}
     {tab==='turnos'&&<TurnosView data={data} onSaveRecurring={onSaveRecurring} onSaveOverride={onSaveOverride}/>}
     {tab==='ausencias'&&<AbsencesView data={data} onAdd={onAddTimeOff} onDel={onDelTimeOff} onApprove={onApproveTimeOff}/>}
   </div>
@@ -1843,10 +1876,19 @@ function CFJuventudView({data,onChanged}){
     setBulk(null);onChanged()
   }
 
-  // profiles_update permite (id = auth.uid() or is_admin()), y el guard
-  // anti-escalada se salta a los admins: ambas van directas, sin RPC.
-  const changeTeam=async(id,teamId)=>{await supabase.from('profiles').update({team_id:teamId?Number(teamId):null}).eq('id',id);onChanged()}
-  const revokePlayer=async id=>{await supabase.from('profiles').update({role:'client',team_id:null}).eq('id',id);setRevoke(null);onChanged()}
+  // El profesor NO tiene profiles_update directo (la policy exige is_admin()).
+  // Pasamos por RPC: cf_cambiar_equipo y cf_quitar_jugador comprueban
+  // is_manager() (= admin o teacher) y dejan el cambio en profiles.
+  const changeTeam=async(id,teamId)=>{
+    const{error}=await supabase.rpc('cf_cambiar_equipo',{p_profile:id,p_team:teamId?Number(teamId):null})
+    if(error){alert('No se pudo cambiar el equipo: '+error.message);return}
+    onChanged()
+  }
+  const revokePlayer=async id=>{
+    const{error}=await supabase.rpc('cf_quitar_jugador',{p_profile:id})
+    if(error){alert('No se pudo dar de baja al jugador: '+error.message);setRevoke(null);return}
+    setRevoke(null);onChanged()
+  }
 
   // salon_config es clave/valor: se actualiza la fila de esa key, o se crea.
   const setSwitch=async(key,value)=>{
@@ -2292,17 +2334,17 @@ export default function App(){
     const m={};arr.forEach(pr=>{m[pr.id]=pr});setProfiles(m)
   },[])
 
-  const checkRole=r=>r==='admin'||r==='barber'
+  const checkRole=r=>r==='admin'||r==='barber'||r==='teacher'
 
   useEffect(()=>{
     supabase.auth.getSession().then(async({data:{session}})=>{
-      if(session?.user){setUser(session.user);const{data:prof}=await supabase.from('profiles').select('*').eq('id',session.user.id).single();if(!checkRole(prof?.role)){setView('denied');return}setProfile(prof);setView('app');loadAll()}else{setView('auth')}
+      if(session?.user){setUser(session.user);const{data:prof}=await supabase.from('profiles').select('*').eq('id',session.user.id).single();if(!checkRole(prof?.role)){setView('denied');return}setProfile(prof);setView('app');if(prof?.role==='teacher')setPage('cal');loadAll()}else{setView('auth')}
     })
     const{data:{subscription}}=supabase.auth.onAuthStateChange((_e,s)=>{if(!s?.user){setUser(null);setProfile(null);setView('auth')}})
     return()=>subscription.unsubscribe()
   },[loadAll])
 
-  const handleLogin=async u=>{setUser(u);const{data:prof}=await supabase.from('profiles').select('*').eq('id',u.id).single();if(!checkRole(prof?.role)){setView('denied');return}setProfile(prof);setView('app');loadAll()}
+  const handleLogin=async u=>{setUser(u);const{data:prof}=await supabase.from('profiles').select('*').eq('id',u.id).single();if(!checkRole(prof?.role)){setView('denied');return}setProfile(prof);setView('app');if(prof?.role==='teacher')setPage('cal');loadAll()}
   const cancelAppt=async id=>{const{error}=await supabase.from('appointments').update({status:'cancelled',cancelled_by:'admin'}).eq('id',id);if(error){alert('No se pudo cancelar la cita. Inténtalo de nuevo.');return}loadAll()}
   const addBlock=async d=>{await supabase.from('blocked_slots').insert({...d,created_by:user.id});loadAll()}
   const rmBlock=async id=>{await supabase.from('blocked_slots').delete().eq('id',id);loadAll()}
@@ -2320,6 +2362,13 @@ export default function App(){
   const delExpense=async id=>{await supabase.from('expenses').delete().eq('id',id);loadAll()}
   const linkProfile=async(stylistId,profileId)=>{await supabase.from('profiles').update({role:'barber',stylist_id:stylistId}).eq('id',profileId);loadAll()}
   const unlinkProfile=async(profileId)=>{await supabase.from('profiles').update({role:'client',stylist_id:null}).eq('id',profileId);loadAll()}
+  // Dar o quitar rol de profesor a un cliente: solo el admin lo dispara,
+  // y solo sobre client/user/teacher. stylist_id queda a null (no corta).
+  const toggleRole=async(profileId,nextRole)=>{
+    const{error}=await supabase.from('profiles').update({role:nextRole,stylist_id:null}).eq('id',profileId)
+    if(error){alert('No se pudo cambiar el rol: '+(error.message||'error desconocido'));return}
+    loadAll()
+  }
 
   const addTimeOff=async rows=>{await supabase.from('time_off').insert(rows.map(r=>({...r,created_by:user.id})));loadAll()}
   const delTimeOff=async id=>{await supabase.from('time_off').delete().eq('id',id);loadAll()}
@@ -2344,6 +2393,10 @@ export default function App(){
 
   const D={appts,profiles,stylists,services,blocks,expenses,allProfiles,dashFees,timeOff,closures,schedules,overrides,salonSchedule,cfTeams,cfService,courses,enrols,studentCfg}
   const isMainAdmin=profile?.role==='admin'
+  const isTeacher=profile?.role==='teacher'
+  // El profesor opera en el panel pero no tiene acceso a dinero: comparte
+  // agenda, bloqueos, horario, clientes y CF Juventud con el admin.
+  const isManager=isMainAdmin||isTeacher
   const myStyId=profile?.stylist_id||null
   const myStyName=stylists.find(s=>s.id===myStyId)?.name||null
 
@@ -2353,19 +2406,19 @@ export default function App(){
 
   return<div style={{display:'flex',minHeight:'100vh'}}>
     <style>{CSS}</style>
-    <Sidebar active={page} onNav={setPage} isMainAdmin={isMainAdmin} stylistName={myStyName}/>
+    <Sidebar active={page} onNav={setPage} isMainAdmin={isMainAdmin} isTeacher={isTeacher} stylistName={myStyName}/>
     <main style={{flex:1,marginLeft:'var(--sidebar-w)',padding:'24px 28px',maxWidth:'calc(100vw - var(--sidebar-w))'}}>
       {page==='dash'&&isMainAdmin&&<Dashboard data={D}/>}
-      {page==='cal'&&<CalendarView data={D} onCancel={cancelAppt} onApptAdded={loadAll} onAddBlock={addBlock} salonSchedule={salonSchedule} lockedStylistId={isMainAdmin?null:myStyId}/>}
+      {page==='cal'&&<CalendarView data={D} onCancel={cancelAppt} onApptAdded={loadAll} onAddBlock={addBlock} salonSchedule={salonSchedule} lockedStylistId={isManager?null:myStyId}/>}
       {page==='finance'&&isMainAdmin&&<FacturacionView data={D} onAddExpense={addExpense} onDelExpense={delExpense}/>}
       {page==='barbers'&&isMainAdmin&&<BarberStats data={D}/>}
-      {page==='clients'&&isMainAdmin&&<ClientsView data={D}/>}
-      {page==='personal'&&isMainAdmin&&<PersonalView data={D} onReload={loadAll} onSaveSty={saveSty} onDelSty={delSty} onLink={linkProfile} onUnlink={unlinkProfile} onAddTimeOff={addTimeOff} onDelTimeOff={delTimeOff} onApproveTimeOff={approveTimeOff} onSaveRecurring={saveShiftRecurring} onSaveOverride={saveShiftOverride}/>}
-      {page==='cfjuventud'&&isMainAdmin&&<CFJuventudView data={D} onChanged={loadAll}/>}
-      {page==='timeoff'&&!isMainAdmin&&<MyAbsencesView data={D} stylistId={myStyId} onAdd={addTimeOff} onDel={delTimeOff}/>}
+      {page==='clients'&&isManager&&<ClientsView data={D} sinImportes={isTeacher} canManageRoles={isMainAdmin} onReload={loadAll} onToggleRole={toggleRole}/>}
+      {page==='personal'&&isManager&&<PersonalView data={D} onReload={loadAll} onSaveSty={saveSty} onDelSty={delSty} onLink={linkProfile} onUnlink={unlinkProfile} onAddTimeOff={addTimeOff} onDelTimeOff={delTimeOff} onApproveTimeOff={approveTimeOff} onSaveRecurring={saveShiftRecurring} onSaveOverride={saveShiftOverride} soloOperativa={isTeacher}/>}
+      {page==='cfjuventud'&&isManager&&<CFJuventudView data={D} onChanged={loadAll}/>}
+      {page==='timeoff'&&profile?.role==='barber'&&<MyAbsencesView data={D} stylistId={myStyId} onAdd={addTimeOff} onDel={delTimeOff}/>}
       {page==='services'&&isMainAdmin&&<ServicesView data={D} onSave={saveSvc} onDel={delSvc}/>}
-      {page==='blocks'&&<BlocksView data={D} onAdd={addBlock} onDel={rmBlock} lockedStylistId={isMainAdmin?null:myStyId}/>}
-      {page==='schedule'&&(isMainAdmin
+      {page==='blocks'&&<BlocksView data={D} onAdd={addBlock} onDel={rmBlock} lockedStylistId={isManager?null:myStyId}/>}
+      {page==='schedule'&&(isManager
         ?<SalonScheduleView schedule={salonSchedule} onSaved={loadAll} closures={closures} onAddClosure={addClosure} onDelClosure={delClosure}/>
         :<MyScheduleView stylistId={myStyId} onSaved={loadAll}/>
       )}
