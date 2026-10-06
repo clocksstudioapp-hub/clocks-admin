@@ -1284,10 +1284,12 @@ function ClientsView({data,sinImportes=false,canManageRoles=false,onReload,onTog
   const handleExport=()=>{const base={Nombre:c=>c.full_name||'—',Telefono:c=>c.phone||'—',Rol:c=>c.role||'user',Visitas:c=>c.v,Cancelaciones:c=>c.c,Ultima_visita:c=>c.last||'—'};const cols=sinImportes?base:{...base,Ingresos:c=>c.r.toFixed(2)};const rows=clients.map(c=>Object.fromEntries(Object.entries(cols).map(([k,fn])=>[k,fn(c)])));if(rows.length>0)exportCSV(rows,'clientes')}
   const cols=sinImportes
     ?'2fr 1fr 90px 80px 80px 100px 160px'
-    :'2fr 1fr 90px 80px 100px 80px 100px'
+    :'2fr 1fr 90px 80px 100px 80px 100px 150px'
+  // La última columna es la del botón de rol (vacía si no aplica): las filas
+  // siempre pintan esa celda, así que la cabecera tiene que contarla.
   const headers=sinImportes
     ?['Cliente','Teléfono','Rol','Visitas','Canc.','Última','']
-    :['Cliente','Teléfono','Rol','Visitas','Ingresos','Canc.','Última']
+    :['Cliente','Teléfono','Rol','Visitas','Ingresos','Canc.','Última','']
   // Botón Hacer/Quitar profesor: solo admin (canManageRoles) y nunca sobre
   // admin/barber/player. El profesor no lo ve.
   const toggleTeacher=c=>{
